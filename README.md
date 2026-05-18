@@ -130,6 +130,12 @@ Runs a read-only readiness review for a plan file.
 
 Use it when you want Codex to check whether a plan can be implemented as written before you start coding. The review is repo-grounded and returns findings with plan line references, evidence, readiness impact, and whether a plan edit needs re-review.
 
+Use it when you want:
+
+- a readiness pass before implementing a plan, wave, phase, or migration slice
+- a check that the plan matches the current code, tests, docs, and repository guidance
+- a structured verdict you can act on before handing implementation to Claude or Codex
+
 It supports `--wait` and `--background`. If you omit both, the slash-command wrapper asks once whether to wait or run in the background.
 
 Examples:
@@ -140,7 +146,13 @@ Examples:
 /codex:plan-review --background docs/plans/wave-1/plan.md
 ```
 
+The plan path must point to a text file inside the current git repository. Untracked plan files are supported.
+
+The result is findings-first markdown. For each material issue, Codex reports severity, readiness effect, whether a plan edit needs re-review, plan line location, evidence, risk, recommendation, and options when useful. If there are no material findings, the verdict is `approve`.
+
 This command is read-only. It does not run tests, builds, migrations, docker, linters, or typecheckers as part of the review. If Codex attempts one of those commands or applies a file change, the companion marks the job failed and stores the policy violation diagnostics.
+
+For more detail, see [`plugins/codex/PLAN_REVIEW.md`](plugins/codex/PLAN_REVIEW.md).
 
 ### `/codex:rescue`
 
@@ -248,6 +260,14 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 /codex:review
 ```
 
+### Review A Plan Before Coding
+
+```bash
+/codex:plan-review --background docs/plans/wave-1/plan.md
+/codex:status
+/codex:result
+```
+
 ### Hand A Problem To Codex
 
 ```bash
@@ -316,6 +336,10 @@ That means:
 ### Will it use the same Codex config I already have?
 
 Yes. If you already use Codex, the plugin picks up the same [configuration](#common-configurations).
+
+### Does plan review change files or run validation commands?
+
+No. `/codex:plan-review` runs in read-only mode. It may inspect repository files, but it must not edit files or run tests, builds, migrations, docker, linters, typecheckers, or other validation commands. If one of those actions happens, the stored result is marked as a policy failure.
 
 ### Can I keep using my current API key or base URL setup?
 
