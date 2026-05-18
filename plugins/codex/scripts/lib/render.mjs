@@ -1,3 +1,5 @@
+import { validatePlanReviewResult } from "./plan-review.mjs";
+
 function severityRank(severity) {
   switch (severity) {
     case "critical":
@@ -282,6 +284,185 @@ export function renderReviewResult(parsedResult, meta) {
 
   appendReasoningSection(lines, meta.reasoningSummary);
 
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
+function formatPlanLineRange(finding) {
+  if (!finding?.line_start) {
+    return "";
+  }
+  if (!finding.line_end || finding.line_end === finding.line_start) {
+    return `${finding.plan_file}:${finding.line_start}`;
+  }
+  return `${finding.plan_file}:${finding.line_start}-${finding.line_end}`;
+}
+
+function formatEvidenceRef(entry) {
+  const path = entry.path ? `${entry.path}` : entry.type;
+  if (entry.line_start && entry.line_end && entry.line_end !== entry.line_start) {
+    return `${path}:${entry.line_start}-${entry.line_end}`;
+  }
+  if (entry.line_start) {
+    return `${path}:${entry.line_start}`;
+  }
+  return path;
+}
+
+function normalizePlanReviewValidation(parsedResult, meta) {
+  if (parsedResult?.validation) {
+    return parsedResult.validation;
+  }
+  if (!parsedResult?.parsed || !meta?.seed) {
+    return { ok: true, errors: [] };
+  }
+  return validatePlanReviewResult(parsedResult.parsed, meta.seed);
+}
+
+function appendPlanReviewRawOutput(lines, rawOutput, heading = "Raw final message:") {
+  if (!rawOutput) {
+    return;
+  }
+  lines.push("", heading, "", "```text", rawOutput, "```");
+}
+
+export function renderPlanReviewResult(parsedResult, meta = {}) {
+  const planPath = meta.planPath ?? meta.seed?.normalized_plan_path ?? "unknown";
+  const policyViolation = parsedResult?.policyViolation ?? null;
+  if (policyViolation?.violated) {
+    const lines = [
+      "# Codex Plan Review Policy Failure",
+      "",
+      `Plan: ${planPath}`,
+      "",
+      "Codex violated the plan-review read-only policy. The stored result is marked failed."
+    ];
+
+    if (policyViolation.forbiddenCommands?.length) {
+      lines.push("", "Forbidden commands:");
+      for (const command of policyViolation.forbiddenCommands) {
+        lines.push(`- ${command.command}`);
+      }
+    }
+
+    if (policyViolation.fileChanges?.length) {
+      lines.push("", "Unexpected file changes:");
+      for (const change of policyViolation.fileChanges) {
+        const paths = (change.changes ?? []).map((entry) => entry.path).filter(Boolean).join(", ");
+        lines.push(`- ${paths || "file change item"}`);
+      }
+    }
+
+    appendPlanReviewRawOutput(lines, parsedResult.rawOutput, "Captured output:");
+    return `${lines.join("\n").trimEnd()}\n`;
+  }
+
+  if (!parsedResult?.parsed) {
+    const lines = [
+      "# Codex Plan Review",
+      "",
+      `Plan: ${planPath}`,
+      "Codex did not return valid structured JSON.",
+      "",
+      `- Parse error: ${parsedResult?.parseError}`
+    ];
+    appendPlanReviewRawOutput(lines, parsedResult?.rawOutput);
+    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult?.reasoningSummary);
+    return `${lines.join("\n").trimEnd()}\n`;
+  }
+
+  const validation = normalizePlanReviewValidation(parsedResult, meta);
+  if (!validation.ok) {
+    const lines = [
+      "# Codex Plan Review",
+      "",
+      `Plan: ${planPath}`,
+      "Codex returned JSON with an unexpected plan-review shape.",
+      "",
+      "Validation errors:"
+    ];
+    for (const error of validation.errors) {
+      lines.push(`- ${error}`);
+    }
+    appendPlanReviewRawOutput(lines, parsedResult.rawOutput);
+    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
+    return `${lines.join("\n").trimEnd()}\n`;
+  }
+
+  const data = parsedResult.parsed;
+  const findings = [...data.findings].sort((left, right) => severityRank(left.severity) - severityRank(right.severity));
+  const lines = [
+    "# Codex Plan Review",
+    "",
+    `Plan: ${planPath}`,
+    `Verdict: ${data.verdict}`,
+    "",
+    data.summary,
+    ""
+  ];
+
+  if (findings.length === 0) {
+    lines.push("No material findings.");
+  } else {
+    lines.push("Findings:");
+    lines.push("| Severity | Readiness effect | Re-review | Finding | Location |");
+    lines.push("| --- | --- | --- | --- | --- |");
+    for (const finding of findings) {
+      lines.push(
+        `| ${escapeMarkdownCell(finding.severity)} | ${escapeMarkdownCell(finding.readiness_effect)} | ${finding.requires_re_review ? "yes" : "no"} | ${escapeMarkdownCell(finding.title)} | ${escapeMarkdownCell(formatPlanLineRange(finding))} |`
+      );
+    }
+
+    lines.push("");
+    for (const finding of findings) {
+      lines.push(`### ${finding.title}`);
+      lines.push(`- Severity: ${finding.severity}`);
+      lines.push(`- Readiness effect: ${finding.readiness_effect}`);
+      lines.push(`- Requires re-review: ${finding.requires_re_review ? "yes" : "no"}`);
+      lines.push(`- Location: ${formatPlanLineRange(finding)}`);
+      lines.push(`- Risk: ${finding.risk}`);
+      lines.push(`- Recommendation: ${finding.recommendation}`);
+      if (finding.evidence?.length) {
+        lines.push("- Evidence:");
+        for (const entry of finding.evidence) {
+          lines.push(`  - ${formatEvidenceRef(entry)}: ${entry.summary}`);
+        }
+      }
+      if (finding.options?.length) {
+        lines.push("- Options:");
+        for (const option of finding.options) {
+          lines.push(`  - ${option.title}: ${option.change} Tradeoff: ${option.tradeoff}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+
+  if (data.requires_verify.length > 0) {
+    lines.push("", "Requires verify:");
+    for (const item of data.requires_verify) {
+      lines.push(`- ${item.blocks_approval ? "[blocks approval] " : ""}${item.question}`);
+      lines.push(`  Suggested check: ${item.suggested_check}`);
+      lines.push(`  Why it matters: ${item.why_it_matters}`);
+    }
+  }
+
+  if (data.coverage.length > 0) {
+    lines.push("", "Coverage:");
+    for (const item of data.coverage) {
+      const evidence = item.evidence?.length ? ` Evidence: ${item.evidence.join(", ")}.` : "";
+      const notes = item.notes ? ` ${item.notes}` : "";
+      lines.push(`- ${item.area}: ${item.status}.${evidence}${notes}`);
+    }
+  }
+
+  if (data.residual_risks.length > 0) {
+    lines.push("", "Residual risks:");
+    for (const risk of data.residual_risks) {
+      lines.push(`- ${risk}`);
+    }
+  }
+
+  appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
   return `${lines.join("\n").trimEnd()}\n`;
 }
 

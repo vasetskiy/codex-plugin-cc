@@ -273,6 +273,154 @@ test("adversarial review accepts the same base-branch targeting as review", () =
   assert.match(result.stdout, /Missing empty-state guard/);
 });
 
+test("plan-review runs a read-only structured review for a plan file", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs", "plans"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "AGENTS.md"), "# Agent guide\n");
+  fs.writeFileSync(path.join(repo, "docs", "plans", "plan.md"), "# Plan\n\nChange one thing.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "plan-review", "--json", "--wait", "docs/plans/plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.review, "Plan Review");
+  assert.equal(payload.plan.normalized_plan_path, "docs/plans/plan.md");
+  assert.match(payload.plan.plan_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(payload.result.schema_version, "plan-review-output/v1");
+  assert.equal(payload.runtime.schema_version, "plan-review-runtime/v1");
+  assert.equal(payload.runtime.output_schema_version, "plan-review-output/v1");
+  assert.equal(payload.runtime.command.mode, "wait");
+  assert.equal(payload.runtime.turnId, payload.turnId);
+  assert.equal(Number.isInteger(payload.runtime.elapsedMs), true);
+  assert.equal(payload.policyViolation.violated, false);
+
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.match(fakeState.lastTurnStart.prompt, /plan-review-seed\/v1/);
+  assert.match(fakeState.lastTurnStart.prompt, /docs\/plans\/plan\.md/);
+  assert.match(fakeState.lastTurnStart.prompt, /Change one thing\./);
+});
+
+test("plan-review status and result expose plan-review as its own job kind", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const review = run("node", [SCRIPT, "plan-review", "docs/plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(review.status, 0, review.stderr);
+  assert.match(review.stdout, /# Codex Plan Review/);
+  assert.match(review.stdout, /Verdict: approve/);
+
+  const status = run("node", [SCRIPT, "status", "--json"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(status.status, 0, status.stderr);
+  const statusPayload = JSON.parse(status.stdout);
+  assert.equal(statusPayload.latestFinished.kindLabel, "plan-review");
+  assert.equal(statusPayload.latestFinished.title, "Codex Plan Review");
+
+  const result = run("node", [SCRIPT, "result"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# Codex Plan Review/);
+  assert.match(result.stdout, /Codex session ID: thr_/);
+});
+
+test("plan-review fails with preserved diagnostics when Codex violates read-only review policy", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-policy-violation");
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "plan.md"), "# Plan\n");
+  run("git", ["add", "plan.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "plan-review", "--json", "plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.policyViolation.violated, true);
+  assert.deepEqual(payload.policyViolation.forbiddenCommands.map((entry) => entry.command), ["npm test"]);
+  assert.equal(payload.rawOutput.includes("plan-review-output/v1"), true);
+
+  const status = run("node", [SCRIPT, "status", "--json"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(JSON.parse(status.stdout).latestFinished.status, "failed");
+});
+
+test("plan-review strips command-layer execution flags and rejects ambiguous arguments", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "plan.md"), "# Plan\n");
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "my plan.md"), "# Plan with spaces\n");
+  fs.writeFileSync(path.join(repo, "-dash-plan.md"), "# Dash plan\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const background = run("node", [SCRIPT, "plan-review", "--background", "plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(background.status, 0, background.stderr);
+  assert.match(background.stdout, /# Codex Plan Review/);
+
+  const quotedRawPath = run("node", [SCRIPT, "plan-review", '"docs/my plan.md"'], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(quotedRawPath.status, 0, quotedRawPath.stderr);
+  assert.match(quotedRawPath.stdout, /Plan: docs\/my plan\.md/);
+
+  const dashPath = run("node", [SCRIPT, "plan-review", "--", "-dash-plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(dashPath.status, 0, dashPath.stderr);
+  assert.match(dashPath.stdout, /Plan: -dash-plan\.md/);
+
+  const both = run("node", [SCRIPT, "plan-review", "--wait", "--background", "plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(both.status, 1);
+  assert.match(both.stderr, /Choose either --wait or --background/);
+
+  const unknown = run("node", [SCRIPT, "plan-review", "--mode", "adversarial", "plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /Unknown option: --mode/);
+});
+
 test("adversarial review asks Codex to inspect larger diffs itself", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

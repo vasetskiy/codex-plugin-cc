@@ -1,6 +1,6 @@
 # Codex plugin for Claude Code
 
-Use Codex from inside Claude Code for code reviews or to delegate tasks to Codex.
+Use Codex from inside Claude Code for code reviews, plan reviews, or delegated tasks.
 
 This plugin is for Claude Code users who want an easy way to start using Codex from the workflow
 they already have.
@@ -11,6 +11,7 @@ they already have.
 
 - `/codex:review` for a normal read-only Codex review
 - `/codex:adversarial-review` for a steerable challenge review
+- `/codex:plan-review` for a read-only readiness review of a plan file
 - `/codex:rescue`, `/codex:status`, `/codex:result`, and `/codex:cancel` to delegate work and manage background jobs
 
 ## Requirements
@@ -122,6 +123,24 @@ Examples:
 ```
 
 This command is read-only. It does not fix code.
+
+### `/codex:plan-review`
+
+Runs a read-only readiness review for a plan file.
+
+Use it when you want Codex to check whether a plan can be implemented as written before you start coding. The review is repo-grounded and returns findings with plan line references, evidence, readiness impact, and whether a plan edit needs re-review.
+
+It supports `--wait` and `--background`. If you omit both, the slash-command wrapper asks once whether to wait or run in the background.
+
+Examples:
+
+```bash
+/codex:plan-review docs/plans/wave-1/plan.md
+/codex:plan-review --wait docs/plans/wave-1/plan.md
+/codex:plan-review --background docs/plans/wave-1/plan.md
+```
+
+This command is read-only. It does not run tests, builds, migrations, docker, linters, or typecheckers as part of the review. If Codex attempts one of those commands or applies a file change, the companion marks the job failed and stores the policy violation diagnostics.
 
 ### `/codex:rescue`
 

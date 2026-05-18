@@ -20,7 +20,7 @@ export function runCommand(command, args = [], options = {}) {
     signal: result.signal ?? null,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
-    error: result.error ?? null
+    error: result.status === 0 ? null : result.error ?? null
   };
 }
 

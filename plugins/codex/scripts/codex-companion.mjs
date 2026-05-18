@@ -22,6 +22,12 @@ import {
   } from "./lib/codex.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
 import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
+import {
+  auditPlanReviewPolicy,
+  buildPlanReviewPrompt,
+  collectPlanReviewSeedContext,
+  validatePlanReviewResult
+} from "./lib/plan-review.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
 import {
@@ -53,6 +59,7 @@ import {
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import {
   renderNativeReviewResult,
+  renderPlanReviewResult,
   renderReviewResult,
   renderStoredJobResult,
   renderCancelReport,
@@ -64,6 +71,7 @@ import {
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
+const PLAN_REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "plan-review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
@@ -77,6 +85,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
+      "  node scripts/codex-companion.mjs plan-review [--wait|--background] [--json] <path/to/plan.md>",
       "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -143,6 +152,60 @@ function parseCommandInput(argv, config = {}) {
       ...(config.aliasMap ?? {})
     }
   });
+}
+
+function parsePlanReviewInput(argv) {
+  const normalizedArgv = normalizeArgv(argv);
+  const options = {};
+  const positionals = [];
+  let passthrough = false;
+
+  for (let index = 0; index < normalizedArgv.length; index += 1) {
+    const token = normalizedArgv[index];
+
+    if (passthrough) {
+      positionals.push(token);
+      continue;
+    }
+
+    if (token === "--") {
+      passthrough = true;
+      continue;
+    }
+
+    if (token === "--json" || token === "--wait" || token === "--background") {
+      options[token.slice(2)] = true;
+      continue;
+    }
+
+    if (token === "--cwd" || token === "-C" || token === "--model" || token === "-m") {
+      const nextValue = normalizedArgv[index + 1];
+      if (nextValue === undefined) {
+        throw new Error(`Missing value for ${token}`);
+      }
+      options[token === "--model" || token === "-m" ? "model" : "cwd"] = nextValue;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--cwd=")) {
+      options.cwd = token.slice("--cwd=".length);
+      continue;
+    }
+
+    if (token.startsWith("--model=")) {
+      options.model = token.slice("--model=".length);
+      continue;
+    }
+
+    if (token.startsWith("-") && token !== "-") {
+      throw new Error(`Unknown option: ${token}`);
+    }
+
+    positionals.push(token);
+  }
+
+  return { options, positionals };
 }
 
 function resolveCommandCwd(options = {}) {
@@ -454,6 +517,131 @@ async function executeReviewRun(request) {
   };
 }
 
+function summarizePlanReviewSeed(seed) {
+  return {
+    schema_version: seed.schema_version,
+    repo_root: seed.repo_root,
+    command_cwd: seed.command_cwd,
+    normalized_plan_path: seed.normalized_plan_path,
+    plan_sha256: seed.plan_sha256,
+    byte_length: seed.byte_length,
+    line_count: seed.line_count,
+    git: seed.git,
+    guidance_candidates: seed.guidance_candidates.map((candidate) => ({
+      path: candidate.path,
+      role: candidate.role,
+      read_by_default: candidate.read_by_default
+    })),
+    adjacent_context_candidates: seed.adjacent_context_candidates.map((candidate) => ({
+      path: candidate.path,
+      role: candidate.role,
+      read_by_default: candidate.read_by_default
+    })),
+    historical_artifacts_policy: seed.historical_artifacts_policy
+  };
+}
+
+async function executePlanReviewRun(request) {
+  ensureCodexAvailable(request.cwd);
+  ensureGitRepository(request.cwd);
+
+  const seed = collectPlanReviewSeedContext(request.cwd, request.planPath);
+  const prompt = buildPlanReviewPrompt(seed);
+  const startedAt = new Date();
+  const result = await runAppServerTurn(seed.repo_root, {
+    prompt,
+    model: request.model,
+    sandbox: "read-only",
+    outputSchema: readOutputSchema(PLAN_REVIEW_SCHEMA),
+    onProgress: request.onProgress
+  });
+  const completedAt = new Date();
+  const parsed = parseStructuredOutput(result.finalMessage, {
+    status: result.status,
+    failureMessage: result.error?.message ?? result.stderr
+  });
+  const validation = parsed.parsed
+    ? validatePlanReviewResult(parsed.parsed, seed)
+    : { ok: false, errors: parsed.parseError ? [parsed.parseError] : ["Missing structured output."] };
+  const policyViolation = auditPlanReviewPolicy(result);
+  const exitStatus =
+    policyViolation.violated || parsed.parseError || !validation.ok
+      ? 1
+      : result.status;
+  const seedSummary = summarizePlanReviewSeed(seed);
+  const commandOptions = request.commandOptions ?? {};
+  const runtime = {
+    schema_version: "plan-review-runtime/v1",
+    output_schema_version: "plan-review-output/v1",
+    threadId: result.threadId,
+    turnId: result.turnId,
+    startedAt: startedAt.toISOString(),
+    completedAt: completedAt.toISOString(),
+    elapsedMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
+    command: {
+      subcommand: "plan-review",
+      cwd: request.cwd,
+      planPath: request.planPath,
+      mode: commandOptions.background ? "background" : commandOptions.wait ? "wait" : "foreground",
+      options: {
+        wait: Boolean(commandOptions.wait),
+        background: Boolean(commandOptions.background),
+        json: Boolean(commandOptions.json),
+        model: request.model ?? null
+      }
+    }
+  };
+  const payload = {
+    review: "Plan Review",
+    kind: "plan-review",
+    threadId: result.threadId,
+    turnId: result.turnId,
+    runtime,
+    plan: seedSummary,
+    codex: {
+      status: result.status,
+      stderr: result.stderr,
+      stdout: result.finalMessage,
+      reasoning: result.reasoningSummary
+    },
+    result: parsed.parsed,
+    rawOutput: parsed.rawOutput,
+    parseError: parsed.parseError,
+    validation,
+    policyViolation,
+    reasoningSummary: result.reasoningSummary
+  };
+  const rendered = renderPlanReviewResult(
+    {
+      parsed: parsed.parsed,
+      rawOutput: parsed.rawOutput,
+      parseError: parsed.parseError,
+      validation,
+      policyViolation,
+      reasoningSummary: result.reasoningSummary
+    },
+    {
+      planPath: seed.normalized_plan_path,
+      seed,
+      reasoningSummary: result.reasoningSummary
+    }
+  );
+
+  return {
+    exitStatus,
+    threadId: result.threadId,
+    turnId: result.turnId,
+    payload,
+    rendered,
+    summary: policyViolation.violated
+      ? "Plan review failed read-only policy audit."
+      : parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, "Plan Review finished."),
+    jobTitle: "Codex Plan Review",
+    jobClass: "review",
+    targetLabel: seed.normalized_plan_path
+  };
+}
+
 
 async function executeTaskRun(request) {
   const workspaceRoot = resolveWorkspaceRoot(request.cwd);
@@ -555,6 +743,9 @@ function renderQueuedTaskLaunch(payload) {
 }
 
 function getJobKindLabel(kind, jobClass) {
+  if (kind === "plan-review") {
+    return "plan-review";
+  }
   if (kind === "adversarial-review") {
     return "adversarial-review";
   }
@@ -727,6 +918,48 @@ async function handleReview(argv) {
     reviewName: "Review",
     validateRequest: validateNativeReviewRequest
   });
+}
+
+async function handlePlanReview(argv) {
+  const { options, positionals } = parsePlanReviewInput(argv);
+
+  if (options.wait && options.background) {
+    throw new Error("Choose either --wait or --background, not both.");
+  }
+
+  if (positionals.length !== 1) {
+    throw new Error("Provide exactly one plan path.");
+  }
+
+  const cwd = resolveCommandCwd(options);
+  const workspaceRoot = resolveCommandWorkspace(options);
+  const model = normalizeRequestedModel(options.model);
+  const planPath = positionals[0];
+  const job = createCompanionJob({
+    prefix: "review",
+    kind: "plan-review",
+    title: "Codex Plan Review",
+    workspaceRoot,
+    jobClass: "review",
+    summary: `Plan Review ${planPath}`
+  });
+
+  await runForegroundCommand(
+    job,
+    (progress) =>
+      executePlanReviewRun({
+        cwd,
+        model,
+        planPath,
+        commandOptions: {
+          wait: Boolean(options.wait),
+          background: Boolean(options.background),
+          json: Boolean(options.json)
+        },
+        onProgress: progress
+      }),
+    { json: options.json }
+  );
 }
 
 async function handleTask(argv) {
@@ -996,6 +1229,9 @@ async function main() {
       await handleReviewCommand(argv, {
         reviewName: "Adversarial Review"
       });
+      break;
+    case "plan-review":
+      await handlePlanReview(argv);
       break;
     case "task":
       await handleTask(argv);

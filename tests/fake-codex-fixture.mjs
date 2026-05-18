@@ -174,7 +174,32 @@ function nativeReviewText(target) {
   return "Reviewed uncommitted changes.\\nNo material issues found.";
 }
 
-function structuredReviewPayload(prompt) {
+function structuredPlanReviewPayload(prompt) {
+  const planPathMatch = prompt.match(/"normalized_plan_path":\\s*"([^"]+)"/);
+  const planPath = planPathMatch ? planPathMatch[1] : "plan.md";
+  return JSON.stringify({
+    schema_version: "plan-review-output/v1",
+    verdict: "approve",
+    summary: "Ready to implement.",
+    findings: [],
+    requires_verify: [],
+    coverage: [
+      {
+        area: "code",
+        status: "checked",
+        evidence: [planPath],
+        notes: "Checked the plan review seed and target path."
+      }
+    ],
+    residual_risks: []
+  });
+}
+
+function structuredReviewPayload(prompt, outputSchema) {
+  if (outputSchema && outputSchema.properties && outputSchema.properties.schema_version) {
+    return structuredPlanReviewPayload(prompt);
+  }
+
   if (prompt.includes("adversarial software review")) {
     if (BEHAVIOR === "adversarial-clean") {
       return JSON.stringify({
@@ -385,8 +410,9 @@ rl.on("line", (line) => {
 	        saveState(state);
 	        send({ id: message.id, result: { turn: buildTurn(turnId) } });
 
-        const payload = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
-          ? structuredReviewPayload(prompt)
+        const isStructuredTurn = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict;
+        const payload = isStructuredTurn
+          ? structuredReviewPayload(prompt, message.params.outputSchema)
           : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
 
         if (
@@ -510,6 +536,19 @@ rl.on("line", (line) => {
                   }
               }
             ]
+            : []),
+          ...(BEHAVIOR === "plan-review-policy-violation"
+            ? [
+                {
+                  completed: {
+                    type: "commandExecution",
+                    id: "cmd_" + turnId,
+                    status: "completed",
+                    command: "npm test",
+                    exitCode: 0
+                  }
+                }
+              ]
             : []),
           {
             completed: { type: "agentMessage", id: "msg_" + turnId, text: payload, phase: "final_answer" }

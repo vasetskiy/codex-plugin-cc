@@ -75,12 +75,36 @@ test("continue is not exposed as a user-facing command", () => {
   assert.deepEqual(commandFiles, [
     "adversarial-review.md",
     "cancel.md",
+    "plan-review.md",
     "rescue.md",
     "result.md",
     "review.md",
     "setup.md",
     "status.md"
   ]);
+});
+
+test("plan-review command is a thin deterministic wrapper", () => {
+  const source = read("commands/plan-review.md");
+
+  assert.match(source, /description:\s*Run a Codex readiness review for a plan file/);
+  assert.match(source, /argument-hint:\s*'\[--wait\|--background\] <path\/to\/plan\.md>'/);
+  assert.match(source, /disable-model-invocation:\s*true/);
+  assert.match(source, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion/);
+  assert.doesNotMatch(source, /\bRead\b/);
+  assert.doesNotMatch(source, /\bGrep\b/);
+  assert.doesNotMatch(source, /\bGlob\b/);
+  assert.match(source, /Do not read the plan file/i);
+  assert.match(source, /Preserve the user's arguments exactly/i);
+  assert.match(source, /AskUserQuestion/);
+  assert.match(source, /Wait for results/);
+  assert.match(source, /Run in background/);
+  assert.match(source, /\(Recommended\)/);
+  assert.match(source, /plan-review "\$ARGUMENTS"/);
+  assert.match(source, /run_in_background:\s*true/);
+  assert.match(source, /description:\s*"Codex plan review"/);
+  assert.match(source, /Return the command stdout verbatim/i);
+  assert.match(source, /Do not call `BashOutput`/);
 });
 
 test("rescue command absorbs continue semantics", () => {
