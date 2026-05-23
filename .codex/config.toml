@@ -1,0 +1,12 @@
+# Repo-local Codex defaults for codex-plugin-cc.
+# Keep provider/model choices in the user's global config. This file only sets the
+# conservative execution posture expected for this repository.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = false
+
+[projects."/home/vasetskiy/work/codex-cc"]
+trust_level = "trusted"
