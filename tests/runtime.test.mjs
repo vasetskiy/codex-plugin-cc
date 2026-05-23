@@ -42,6 +42,9 @@ test("setup reports ready when fake codex is installed and authenticated", () =>
   assert.equal(payload.ready, true);
   assert.match(payload.codex.detail, /advanced runtime available/);
   assert.equal(payload.sessionRuntime.mode, "direct");
+
+  const state = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(state.capabilities.requestAttestation, false);
 });
 
 test("setup is ready without npm when Codex is already installed and authenticated", () => {
