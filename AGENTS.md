@@ -85,7 +85,9 @@ Recent review work identified these `/codex:plan-review` gaps compared with the
 requirements:
 
 - The command is not replacement-ready for the `shift-happens` review flow.
-- There is no deterministic pre-sweep of known implementation touchpoints.
+- The deterministic pre-sweep now covers path-like implementation touchpoints
+  declared in the plan, but broader semantic touchpoints still depend on model
+  review.
 - Adjacent project context is exposed as candidates, not hard-attached context.
 - There is no readiness gate, verdict-application flow, or two-green convergence loop.
 - There is no plan-review resume mode.

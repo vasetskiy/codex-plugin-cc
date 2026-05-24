@@ -23,7 +23,11 @@ const ADJACENT_CONTEXT_FILENAMES = [
   "plan.md"
 ];
 const MAX_ATTACHED_ADJACENT_CONTEXT_FILES = 4;
+const MAX_DECLARED_TOUCHPOINTS = 12;
+const MAX_ATTACHED_TOUCHPOINT_FILES = 8;
 const MAX_ATTACHED_CONTEXT_BYTES = 16 * 1024;
+const TOUCHPOINT_FILE_EXTENSION_PATTERN =
+  /\.(?:bash|cjs|css|fish|go|html|java|js|json|jsx|lock|markdown|md|mjs|php|py|rb|rs|scss|sh|sql|toml|ts|tsx|txt|yaml|yml|zsh)$/i;
 const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 const VALID_READINESS_EFFECTS = new Set([
   "blocks-implementation",
@@ -92,6 +96,65 @@ function roleForAdjacent(filename) {
     return "decisions";
   }
   return "adjacent-context";
+}
+
+function hasTouchpointPathShape(value) {
+  return value.includes("/") || TOUCHPOINT_FILE_EXTENSION_PATTERN.test(value);
+}
+
+function normalizeDeclaredTouchpointPath(rawValue) {
+  let value = String(rawValue ?? "").trim();
+  if (!value || value.includes("://") || value.includes("\0")) {
+    return null;
+  }
+
+  value = value.replace(/^['"`]+|['"`]+$/g, "");
+  value = value.replace(/[),.;]+$/g, "");
+  value = value.replace(/^\.\/+/, "");
+
+  const lineSuffix = value.match(/^(.+?):\d+(?:-\d+)?$/);
+  if (lineSuffix) {
+    value = lineSuffix[1];
+  }
+
+  if (!value || path.isAbsolute(value) || !hasTouchpointPathShape(value)) {
+    return null;
+  }
+
+  const normalized = path.posix.normalize(value.split(path.sep).join("/"));
+  if (!normalized || normalized === ".") {
+    return null;
+  }
+
+  return normalized;
+}
+
+function extractDeclaredTouchpointPaths(planLines) {
+  const results = [];
+  const codeSpanPattern = /`([^`\n]+)`/g;
+  const barePathPattern =
+    /(?:^|[\s([{<])([A-Za-z0-9_@.+-][A-Za-z0-9_@./+-]*(?:\/[A-Za-z0-9_@.+-][A-Za-z0-9_@./+-]*|\.(?:bash|cjs|css|fish|go|html|java|js|json|jsx|lock|markdown|md|mjs|php|py|rb|rs|scss|sh|sql|toml|ts|tsx|txt|yaml|yml|zsh)))(?=$|[\s\])}>,.;:])/gi;
+
+  planLines.forEach((text, index) => {
+    const line = index + 1;
+    const lineText = String(text);
+
+    for (const match of lineText.matchAll(codeSpanPattern)) {
+      const normalized = normalizeDeclaredTouchpointPath(match[1]);
+      if (normalized) {
+        results.push({ path: normalized, line, text: lineText });
+      }
+    }
+
+    for (const match of lineText.matchAll(barePathPattern)) {
+      const normalized = normalizeDeclaredTouchpointPath(match[1]);
+      if (normalized) {
+        results.push({ path: normalized, line, text: lineText });
+      }
+    }
+  });
+
+  return results;
 }
 
 function dedupeCandidates(candidates) {
@@ -183,6 +246,71 @@ function collectAdjacentContextCandidates(repoRoot, planDir, planAbsolutePath) {
   }));
 }
 
+function classifyDeclaredTouchpoint(repoRoot, repoRealPath, candidate) {
+  const absolutePath = path.resolve(repoRoot, candidate.path);
+  if (!isInside(repoRoot, absolutePath)) {
+    return "outside-repo";
+  }
+  if (!fs.existsSync(absolutePath)) {
+    return "missing";
+  }
+
+  const realPath = fs.realpathSync(absolutePath);
+  if (!isInside(repoRealPath, realPath)) {
+    return "outside-repo";
+  }
+
+  const stat = fs.statSync(realPath);
+  if (!stat.isFile()) {
+    return "not-file";
+  }
+
+  const buffer = fs.readFileSync(realPath);
+  if (!isProbablyText(buffer)) {
+    return "binary";
+  }
+
+  return "available";
+}
+
+function collectDeclaredTouchpoints(repoRoot, planLines) {
+  const byPath = new Map();
+  for (const reference of extractDeclaredTouchpointPaths(planLines)) {
+    if (!byPath.has(reference.path)) {
+      if (byPath.size >= MAX_DECLARED_TOUCHPOINTS) {
+        continue;
+      }
+      byPath.set(reference.path, {
+        path: reference.path,
+        role: "implementation-touchpoint",
+        selection_reason: "declared path-like token in plan text",
+        read_by_default: false,
+        references: []
+      });
+    }
+
+    const entry = byPath.get(reference.path);
+    if (!entry.references.some((existing) => existing.line === reference.line)) {
+      entry.references.push({ line: reference.line, text: reference.text });
+    }
+  }
+
+  const repoRealPath = fs.realpathSync(repoRoot);
+  let attachedCount = 0;
+  return Array.from(byPath.values()).map((entry) => {
+    const status = classifyDeclaredTouchpoint(repoRoot, repoRealPath, entry);
+    const readByDefault = status === "available" && attachedCount < MAX_ATTACHED_TOUCHPOINT_FILES;
+    if (readByDefault) {
+      attachedCount += 1;
+    }
+    return {
+      ...entry,
+      status: readByDefault ? "attached" : status,
+      read_by_default: readByDefault
+    };
+  });
+}
+
 function decodeUtf8Prefix(buffer, maxBytes) {
   let end = Math.min(buffer.length, maxBytes);
   while (end > 0) {
@@ -195,7 +323,7 @@ function decodeUtf8Prefix(buffer, maxBytes) {
   return "";
 }
 
-function readAttachedContext(repoRoot, candidate) {
+function readAttachedContext(repoRoot, candidate, source = "adjacent_context_candidates") {
   const absolutePath = path.join(repoRoot, candidate.path);
   const buffer = fs.readFileSync(absolutePath);
   if (!isProbablyText(buffer)) {
@@ -218,7 +346,8 @@ function readAttachedContext(repoRoot, candidate) {
     path: candidate.path,
     role: candidate.role,
     selection_reason: candidate.selection_reason,
-    source: "adjacent_context_candidates",
+    source,
+    ...(candidate.references ? { references: candidate.references } : {}),
     sha256: sha256Buffer(buffer),
     byte_length: buffer.length,
     included_byte_length: includedByteLength,
@@ -228,11 +357,16 @@ function readAttachedContext(repoRoot, candidate) {
   };
 }
 
-function collectAttachedContext(repoRoot, adjacentContextCandidates) {
-  return adjacentContextCandidates
+function collectAttachedContext(repoRoot, adjacentContextCandidates, declaredTouchpoints) {
+  const adjacentContext = adjacentContextCandidates
     .filter((candidate) => candidate.read_by_default)
     .map((candidate) => readAttachedContext(repoRoot, candidate))
     .filter(Boolean);
+  const touchpointContext = declaredTouchpoints
+    .filter((candidate) => candidate.read_by_default && candidate.status === "attached")
+    .map((candidate) => readAttachedContext(repoRoot, candidate, "declared_touchpoints"))
+    .filter(Boolean);
+  return [...adjacentContext, ...touchpointContext];
 }
 
 export function resolvePlanReviewPath(cwd, planPath) {
@@ -288,6 +422,7 @@ export function collectPlanReviewSeedContext(cwd, planPath) {
     planDir,
     resolved.absolutePath
   );
+  const declaredTouchpoints = collectDeclaredTouchpoints(resolved.repoRoot, lines);
 
   return {
     schema_version: PLAN_REVIEW_SEED_SCHEMA,
@@ -306,7 +441,8 @@ export function collectPlanReviewSeedContext(cwd, planPath) {
     },
     guidance_candidates: collectGuidanceCandidates(resolved.repoRoot, planDir),
     adjacent_context_candidates: adjacentContextCandidates,
-    attached_context: collectAttachedContext(resolved.repoRoot, adjacentContextCandidates),
+    declared_touchpoints: declaredTouchpoints,
+    attached_context: collectAttachedContext(resolved.repoRoot, adjacentContextCandidates, declaredTouchpoints),
     historical_artifacts_policy: {
       read_by_default: false,
       excluded_patterns: ["review*.md", "audit*", "postmortem*"],
