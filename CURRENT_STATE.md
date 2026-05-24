@@ -9,21 +9,22 @@ Current checkout:
 - Branch: `codex/plan-review-readiness-gate`
 - Upstream: `origin/codex/plan-review-readiness-gate`
 - Base: `origin/main`
-- Base HEAD: `92ae000 Merge pull request #4 from vasetskiy/codex/plan-review-touchpoint-presweep`
-- Latest product commit: `0abd81f Add plan-review readiness gate`
+- Base HEAD: `99c2105 Merge pull request #5 from vasetskiy/codex/current-state-after-touchpoint-presweep`
 - Open PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
-- Worktree: clean after the current-state/session-cleanup refresh is committed
-  and pushed
+- Latest readiness product commit: `0abd81f Add plan-review readiness gate`
+- Merge-conflict resolution: `origin/main` was merged into this branch to pick
+  up PR #5, and the only conflict was this `CURRENT_STATE.md` handoff file.
+- Worktree: expected to be clean after committing and pushing this conflict
+  resolution refresh.
 
-The fork `main` now includes the base maintainer environment work, M1
-plan-review attached context work, the env/process GitHub workflow follow-up,
-and the deterministic touchpoint pre-sweep increment.
+The fork `main` now includes the base environment work, M1 plan-review attached
+context work, the env/process GitHub workflow follow-up, deterministic
+touchpoint pre-sweep work, and the post-touchpoint current-state refresh.
 
-The active branch now contains the committed `/codex:plan-review`
-readiness-gate implementation and an open normal PR against fork `main`. The
-implementation adds deterministic companion-owned readiness derivation, runtime
-payload storage, markdown rendering, derived finding actions, docs, and tests.
-The model-owned `plan-review-output/v1` schema remains unchanged.
+PR #6 contains the `/codex:plan-review` readiness-gate increment. It adds
+deterministic companion-owned readiness derivation, runtime payload storage,
+markdown rendering, derived finding actions, docs, and tests. The model-owned
+`plan-review-output/v1` schema remains unchanged.
 
 ## Completed Base Work
 
@@ -84,6 +85,15 @@ Verified in that Codex session:
 - `gh auth status -h github.com`: OK, token read from `hosts.yml`.
 - `gh api user --jq .login`: OK, returned `vasetskiy`.
 
+## New Repo Rules Added
+
+`AGENTS.md` now includes:
+
+- Do not push to the upstream main branch that this work was forked from. Push
+  only to the fork.
+- Do not create draft pull requests. Open normal pull requests so the user can
+  review and merge them manually.
+
 ## Env / Process Follow-up
 
 PR #3 in the fork was merged into `vasetskiy/codex-plugin-cc:main`.
@@ -124,11 +134,30 @@ Checks run for that work before PR:
 - `npm run build`: passed, with only the known PATH/read-only warning during
   `codex app-server generate-ts`.
 
+## Post-Touchpoint Current-State Refresh
+
+PR #5 in the fork was merged into `vasetskiy/codex-plugin-cc:main`.
+
+- URL: `https://github.com/vasetskiy/codex-plugin-cc/pull/5`
+- Merge commit: `99c2105`
+- Branch: `codex/current-state-after-touchpoint-presweep`
+- Commit: `8fd4508 Update current state after touchpoint pre-sweep`
+
+The PR refreshed `CURRENT_STATE.md` on `main` after PR #4 landed and recorded
+the clean main baseline.
+
+Baseline validation recorded in PR #5:
+
+- `node --test tests/*.test.mjs`: passed, 100/100.
+- `npm run check-version`: passed, version metadata matched `1.0.4`.
+- `npm run build`: passed, with only the known PATH/read-only warning during
+  `codex app-server generate-ts`.
+
 ## Readiness Gate Work
 
 Current active branch: `codex/plan-review-readiness-gate`.
 
-Design-only commit already created:
+Design-only commit:
 
 - `9e57180 docs: add plan review readiness gate design`
 
@@ -146,12 +175,17 @@ Decision from comparison with `/home/vasetskiy/work/shift-happens`:
   existing structured plan-review result, validation result, and policy audit.
 - Keep `/codex:plan-review` read-only.
 
-Implementation committed and pushed:
+Implementation committed and pushed in PR #6:
 
 - PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
 - Product commit: `0abd81f Add plan-review readiness gate`
-- Current-state/session-cleanup refresh: committed and pushed after the product
-  commit
+- Current-state/session-cleanup commits:
+  - `accb471 Update current state for readiness PR`
+  - `a193654 Finalize current state for readiness PR`
+- Conflict-resolution merge from `origin/main`: this refresh resolves the only
+  conflict, which was in `CURRENT_STATE.md`.
+
+Implementation details:
 
 - Added `derivePlanReviewReadiness` in
   `plugins/codex/scripts/lib/plan-review.mjs`.
@@ -171,13 +205,14 @@ Implementation committed and pushed:
 1. Stay on branch `codex/plan-review-readiness-gate`.
 2. Inspect PR #6:
    `https://github.com/vasetskiy/codex-plugin-cc/pull/6`.
-3. If PR #6 is merged, sync local `main` with `origin/main`, rerun the standard
+3. Confirm GitHub reports the PR as mergeable after the conflict-resolution push.
+4. If PR #6 is merged, sync local `main` with `origin/main`, rerun the standard
    validation, and refresh this file to the merged state.
-4. After merge/sync, delete the feature branch locally/remotely if no follow-up
+5. After merge/sync, delete the feature branch locally/remotely if no follow-up
    work is needed.
-5. Keep future plan-review replacement work separate from env/process updates
+6. Keep future plan-review replacement work separate from env/process updates
    unless explicitly requested.
-6. Keep PR targets inside the fork unless instructed otherwise.
+7. Keep PR targets inside the fork unless instructed otherwise.
 
 ## Validation Status
 
@@ -191,8 +226,13 @@ Latest validation before opening PR #6:
 - `npm run build`: passed, with only the known PATH/read-only warning during
   `codex app-server generate-ts`.
 
-If additional code/docs/test edits happen after this current-state refresh,
-rerun the relevant tests and the full validation set above.
+Latest validation after merging `origin/main` into PR #6 to resolve conflicts:
+
+- `node --test tests/*.test.mjs`: passed, 104/104.
+- `npm run check-version`: passed, version metadata matched `1.0.4`.
+- `git diff --check`: passed.
+- `npm run build`: passed, with only the known PATH/read-only warning during
+  `codex app-server generate-ts`.
 
 ## Session Cleanup Notes
 
