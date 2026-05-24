@@ -9,6 +9,7 @@ import {
   auditPlanReviewPolicy,
   buildPlanReviewPrompt,
   collectPlanReviewSeedContext,
+  derivePlanReviewReadiness,
   isForbiddenPlanReviewCommand,
   resolvePlanReviewPath,
   validatePlanReviewResult
@@ -297,6 +298,147 @@ test("validatePlanReviewResult enforces readiness invariants tied to the seed", 
   assert.equal(validation.ok, false);
   assert.match(validation.errors.join("\n"), /findings\[0\]\.plan_file/);
   assert.match(validation.errors.join("\n"), /findings\[0\]\.line_start/);
+});
+
+test("derivePlanReviewReadiness returns ready for a valid approval", () => {
+  const repo = makeRepoWithPlan();
+  const seed = collectPlanReviewSeedContext(repo, "projects/active/demo/plan/plan.md");
+  const parsed = validResult(seed);
+  const validation = validatePlanReviewResult(parsed, seed);
+
+  assert.deepEqual(derivePlanReviewReadiness({ parsed, validation, policyViolation: { violated: false } }), {
+    schema_version: "plan-review-readiness/v1",
+    status: "ready",
+    implementation_allowed: true,
+    requires_re_review: false,
+    next_action: "start-implementation",
+    reasons: []
+  });
+});
+
+test("derivePlanReviewReadiness gives policy and invalid results precedence", () => {
+  assert.deepEqual(
+    derivePlanReviewReadiness({
+      parsed: null,
+      validation: { ok: false, errors: ["not json"] },
+      policyViolation: {
+        violated: true,
+        forbiddenCommands: [{ command: "npm test", reason: "verification command" }],
+        fileChanges: []
+      }
+    }),
+    {
+      schema_version: "plan-review-readiness/v1",
+      status: "policy-failed",
+      implementation_allowed: false,
+      requires_re_review: false,
+      next_action: "inspect-policy-failure",
+      reasons: [{ type: "policy-violation", message: "Plan review violated the read-only policy." }]
+    }
+  );
+
+  assert.deepEqual(
+    derivePlanReviewReadiness({
+      parsed: null,
+      validation: { ok: false, errors: ["Expected schema_version `plan-review-output/v1`."] },
+      policyViolation: { violated: false }
+    }),
+    {
+      schema_version: "plan-review-readiness/v1",
+      status: "invalid-result",
+      implementation_allowed: false,
+      requires_re_review: false,
+      next_action: "rerun-plan-review",
+      reasons: [
+        {
+          type: "validation-error",
+          index: 0,
+          message: "Expected schema_version `plan-review-output/v1`."
+        }
+      ]
+    }
+  );
+});
+
+test("derivePlanReviewReadiness maps findings and blocking verification to gate statuses", () => {
+  const repo = makeRepoWithPlan();
+  const seed = collectPlanReviewSeedContext(repo, "projects/active/demo/plan/plan.md");
+  const blockingFinding = {
+    severity: "high",
+    readiness_effect: "blocks-implementation",
+    requires_re_review: true,
+    title: "Missing migration order",
+    plan_file: seed.normalized_plan_path,
+    line_start: 1,
+    line_end: 1,
+    evidence: [
+      {
+        type: "plan",
+        path: seed.normalized_plan_path,
+        line_start: 1,
+        line_end: 1,
+        summary: "The plan omits ordering."
+      }
+    ],
+    risk: "Implementation can run steps in the wrong order.",
+    recommendation: "Add the migration order.",
+    options: [{ title: "Add order", change: "Document the ordered steps.", tradeoff: "Requires re-review." }]
+  };
+  const canFixFinding = {
+    ...blockingFinding,
+    readiness_effect: "can-fix-during-implementation",
+    requires_re_review: false
+  };
+  const shouldFixFinding = {
+    ...blockingFinding,
+    readiness_effect: "should-fix-before-start",
+    requires_re_review: false
+  };
+  const blockingVerify = {
+    question: "Does the rollback path exist?",
+    why_it_matters: "It determines implementation readiness.",
+    suggested_check: "rg rollback src",
+    blocks_approval: true,
+    related_refs: []
+  };
+
+  assert.equal(
+    derivePlanReviewReadiness({
+      parsed: validResult(seed, { verdict: "needs-attention", summary: "Blocked.", findings: [blockingFinding] }),
+      validation: { ok: true, errors: [] },
+      policyViolation: { violated: false }
+    }).status,
+    "blocked"
+  );
+  assert.equal(
+    derivePlanReviewReadiness({
+      parsed: validResult(seed, { verdict: "needs-attention", summary: "Revise.", findings: [shouldFixFinding] }),
+      validation: { ok: true, errors: [] },
+      policyViolation: { violated: false }
+    }).status,
+    "revise-before-start"
+  );
+  assert.equal(
+    derivePlanReviewReadiness({
+      parsed: validResult(seed, { verdict: "needs-attention", summary: "Carry notes.", findings: [canFixFinding] }),
+      validation: { ok: true, errors: [] },
+      policyViolation: { violated: false }
+    }).status,
+    "ready-with-implementation-notes"
+  );
+  assert.equal(
+    derivePlanReviewReadiness({
+      parsed: validResult(seed, {
+        verdict: "needs-attention",
+        summary: "Answer verify.",
+        findings: [],
+        requires_verify: [blockingVerify]
+      }),
+      validation: { ok: true, errors: [] },
+      policyViolation: { violated: false }
+    }).next_action,
+    "answer-blocking-verification"
+  );
 });
 
 test("auditPlanReviewPolicy catches runtime policy violations without blocking read-only search", () => {

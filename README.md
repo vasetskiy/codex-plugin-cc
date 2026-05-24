@@ -153,7 +153,9 @@ adjacent context candidates, declared implementation touchpoints from path-like
 plan references, and bounded line-indexed content for selected current-state,
 adjacent plan, and touchpoint files.
 
-The result is findings-first markdown. For each material issue, Codex reports severity, readiness effect, whether a plan edit needs re-review, plan line location, evidence, risk, recommendation, and options when useful. If there are no material findings, the verdict is `approve`.
+The result is findings-first markdown with a companion-owned readiness block. The readiness block says whether implementation is allowed, whether the plan needs re-review, and the recommended next action. Statuses are `ready`, `ready-with-implementation-notes`, `revise-before-start`, `blocked`, `invalid-result`, and `policy-failed`.
+
+For each material issue, Codex reports severity, readiness effect, whether a plan edit needs re-review, a derived action, plan line location, evidence, risk, recommendation, and options when useful. If there are no material findings, the verdict is `approve`.
 
 This command is read-only. It does not run tests, builds, migrations, docker, linters, or typecheckers as part of the review. If Codex attempts one of those commands or applies a file change, the companion marks the job failed and stores the policy violation diagnostics.
 

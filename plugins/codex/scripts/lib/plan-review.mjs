@@ -12,6 +12,7 @@ import { interpolateTemplate, loadPromptTemplate } from "./prompts.mjs";
 const PLUGIN_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const PLAN_REVIEW_SEED_SCHEMA = "plan-review-seed/v1";
 const PLAN_REVIEW_OUTPUT_SCHEMA = "plan-review-output/v1";
+const PLAN_REVIEW_READINESS_SCHEMA = "plan-review-readiness/v1";
 const GUIDE_FILENAMES = ["AGENTS.md", "CLAUDE.md", "README.md"];
 const ADJACENT_CONTEXT_FILENAMES = [
   "state.md",
@@ -662,6 +663,123 @@ export function validatePlanReviewResult(data, seed) {
     ok: errors.length === 0,
     errors
   };
+}
+
+function buildPlanReviewReadiness(status, implementationAllowed, requiresReReview, nextAction, reasons = []) {
+  return {
+    schema_version: PLAN_REVIEW_READINESS_SCHEMA,
+    status,
+    implementation_allowed: implementationAllowed,
+    requires_re_review: requiresReReview,
+    next_action: nextAction,
+    reasons
+  };
+}
+
+function findingReason(finding, index) {
+  return {
+    type: "finding",
+    index,
+    message: finding?.title || `Finding ${index + 1}`
+  };
+}
+
+function requiresVerifyReason(entry, index) {
+  return {
+    type: "requires-verify",
+    index,
+    message: entry?.question || `Verification question ${index + 1}`
+  };
+}
+
+export function derivePlanReviewReadiness({ parsed, validation, policyViolation } = {}) {
+  if (policyViolation?.violated) {
+    return buildPlanReviewReadiness("policy-failed", false, false, "inspect-policy-failure", [
+      { type: "policy-violation", message: "Plan review violated the read-only policy." }
+    ]);
+  }
+
+  if (!parsed || validation?.ok === false) {
+    const errors =
+      Array.isArray(validation?.errors) && validation.errors.length > 0
+        ? validation.errors
+        : ["Missing structured plan-review result."];
+    return buildPlanReviewReadiness(
+      "invalid-result",
+      false,
+      false,
+      "rerun-plan-review",
+      errors.map((message, index) => ({ type: "validation-error", index, message }))
+    );
+  }
+
+  const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+  const requiresVerify = Array.isArray(parsed.requires_verify) ? parsed.requires_verify : [];
+  const blockingFindingReasons = findings
+    .map((finding, index) => ({ finding, index }))
+    .filter(({ finding }) => finding?.readiness_effect === "blocks-implementation")
+    .map(({ finding, index }) => findingReason(finding, index));
+  const requiresReReview = findings.some((finding) => finding?.requires_re_review === true);
+
+  if (blockingFindingReasons.length > 0) {
+    return buildPlanReviewReadiness(
+      "blocked",
+      false,
+      requiresReReview,
+      requiresReReview ? "edit-plan-and-rerun-review" : "edit-plan",
+      blockingFindingReasons
+    );
+  }
+
+  const blockingVerifyReasons = requiresVerify
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => entry?.blocks_approval === true)
+    .map(({ entry, index }) => requiresVerifyReason(entry, index));
+
+  if (blockingVerifyReasons.length > 0) {
+    return buildPlanReviewReadiness(
+      "blocked",
+      false,
+      false,
+      "answer-blocking-verification",
+      blockingVerifyReasons
+    );
+  }
+
+  const reviseReasons = findings
+    .map((finding, index) => ({ finding, index }))
+    .filter(
+      ({ finding }) =>
+        finding?.readiness_effect === "should-fix-before-start" || finding?.requires_re_review === true
+    )
+    .map(({ finding, index }) => findingReason(finding, index));
+
+  if (reviseReasons.length > 0) {
+    return buildPlanReviewReadiness(
+      "revise-before-start",
+      false,
+      requiresReReview,
+      requiresReReview ? "edit-plan-and-rerun-review" : "edit-plan",
+      reviseReasons
+    );
+  }
+
+  const implementationNoteReasons = findings
+    .map((finding, index) => ({ finding, index }))
+    .filter(({ finding }) => finding?.readiness_effect === "can-fix-during-implementation")
+    .map(({ finding, index }) => findingReason(finding, index));
+
+  if (implementationNoteReasons.length > 0) {
+    return buildPlanReviewReadiness(
+      "ready-with-implementation-notes",
+      true,
+      false,
+      "carry-notes-into-implementation",
+      implementationNoteReasons
+    );
+  }
+
+  return buildPlanReviewReadiness("ready", true, false, "start-implementation");
 }
 
 export function isForbiddenPlanReviewCommand(command) {

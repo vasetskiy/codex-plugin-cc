@@ -79,6 +79,22 @@ session/thread id, elapsed time и точный timestamp завершения. 
 - session/thread id, turn id
 - started/completed timestamps и elapsed time
 
+Readiness gate metadata также принадлежит companion-owned runtime layer, а не
+model output. После parse, validation и policy audit companion детерминированно
+вычисляет `plan-review-readiness/v1` из `findings[].readiness_effect`,
+`findings[].requires_re_review`, `requires_verify[].blocks_approval`,
+validation errors и policy violations. Renderer показывает этот gate сразу после
+`Verdict`, а finding details получают derived action.
+
+Текущие readiness statuses:
+
+- `ready`
+- `ready-with-implementation-notes`
+- `revise-before-start`
+- `blocked`
+- `invalid-result`
+- `policy-failed`
+
 Каждый finding должен включать:
 
 - `severity`: `critical`, `high`, `medium` или `low`

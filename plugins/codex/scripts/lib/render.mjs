@@ -1,4 +1,4 @@
-import { validatePlanReviewResult } from "./plan-review.mjs";
+import { derivePlanReviewReadiness, validatePlanReviewResult } from "./plan-review.mjs";
 
 function severityRank(severity) {
   switch (severity) {
@@ -325,17 +325,61 @@ function appendPlanReviewRawOutput(lines, rawOutput, heading = "Raw final messag
   lines.push("", heading, "", "```text", rawOutput, "```");
 }
 
+function formatPlanReviewFindingAction(finding) {
+  if (finding.requires_re_review) {
+    return "edit the plan before implementation and rerun plan-review";
+  }
+
+  switch (finding.readiness_effect) {
+    case "blocks-implementation":
+      return "edit the plan before implementation";
+    case "should-fix-before-start":
+      return "edit or clarify the plan before implementation";
+    case "can-fix-during-implementation":
+      return "carry this note into implementation";
+    default:
+      return "inspect this finding before implementation";
+  }
+}
+
+function resolvePlanReviewReadiness(parsedResult, validation, policyViolation) {
+  return (
+    parsedResult?.readiness ??
+    derivePlanReviewReadiness({
+      parsed: parsedResult?.parsed ?? null,
+      validation,
+      policyViolation
+    })
+  );
+}
+
+function appendPlanReviewReadiness(lines, readiness) {
+  if (!readiness) {
+    return;
+  }
+
+  lines.push(`Readiness: ${readiness.status}`);
+  lines.push(`Implementation allowed: ${readiness.implementation_allowed ? "yes" : "no"}`);
+  lines.push(`Requires re-review: ${readiness.requires_re_review ? "yes" : "no"}`);
+  lines.push(`Next action: ${readiness.next_action}`);
+}
+
 export function renderPlanReviewResult(parsedResult, meta = {}) {
   const planPath = meta.planPath ?? meta.seed?.normalized_plan_path ?? "unknown";
   const policyViolation = parsedResult?.policyViolation ?? null;
   if (policyViolation?.violated) {
+    const readiness = resolvePlanReviewReadiness(parsedResult, parsedResult?.validation, policyViolation);
     const lines = [
       "# Codex Plan Review Policy Failure",
       "",
       `Plan: ${planPath}`,
+      ""
+    ];
+    appendPlanReviewReadiness(lines, readiness);
+    lines.push(
       "",
       "Codex violated the plan-review read-only policy. The stored result is marked failed."
-    ];
+    );
 
     if (policyViolation.forbiddenCommands?.length) {
       lines.push("", "Forbidden commands:");
@@ -357,14 +401,24 @@ export function renderPlanReviewResult(parsedResult, meta = {}) {
   }
 
   if (!parsedResult?.parsed) {
+    const validation = parsedResult?.validation ?? {
+      ok: false,
+      errors: parsedResult?.parseError ? [parsedResult.parseError] : ["Missing structured plan-review result."]
+    };
+    const readiness = resolvePlanReviewReadiness(parsedResult, validation, policyViolation);
     const lines = [
       "# Codex Plan Review",
       "",
       `Plan: ${planPath}`,
+      ""
+    ];
+    appendPlanReviewReadiness(lines, readiness);
+    lines.push(
+      "",
       "Codex did not return valid structured JSON.",
       "",
       `- Parse error: ${parsedResult?.parseError}`
-    ];
+    );
     appendPlanReviewRawOutput(lines, parsedResult?.rawOutput);
     appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult?.reasoningSummary);
     return `${lines.join("\n").trimEnd()}\n`;
@@ -372,14 +426,20 @@ export function renderPlanReviewResult(parsedResult, meta = {}) {
 
   const validation = normalizePlanReviewValidation(parsedResult, meta);
   if (!validation.ok) {
+    const readiness = resolvePlanReviewReadiness(parsedResult, validation, policyViolation);
     const lines = [
       "# Codex Plan Review",
       "",
       `Plan: ${planPath}`,
+      ""
+    ];
+    appendPlanReviewReadiness(lines, readiness);
+    lines.push(
+      "",
       "Codex returned JSON with an unexpected plan-review shape.",
       "",
       "Validation errors:"
-    ];
+    );
     for (const error of validation.errors) {
       lines.push(`- ${error}`);
     }
@@ -389,16 +449,20 @@ export function renderPlanReviewResult(parsedResult, meta = {}) {
   }
 
   const data = parsedResult.parsed;
+  const readiness = resolvePlanReviewReadiness(parsedResult, validation, policyViolation);
   const findings = [...data.findings].sort((left, right) => severityRank(left.severity) - severityRank(right.severity));
   const lines = [
     "# Codex Plan Review",
     "",
     `Plan: ${planPath}`,
-    `Verdict: ${data.verdict}`,
+    `Verdict: ${data.verdict}`
+  ];
+  appendPlanReviewReadiness(lines, readiness);
+  lines.push(
     "",
     data.summary,
     ""
-  ];
+  );
 
   if (findings.length === 0) {
     lines.push("No material findings.");
@@ -418,6 +482,7 @@ export function renderPlanReviewResult(parsedResult, meta = {}) {
       lines.push(`- Severity: ${finding.severity}`);
       lines.push(`- Readiness effect: ${finding.readiness_effect}`);
       lines.push(`- Requires re-review: ${finding.requires_re_review ? "yes" : "no"}`);
+      lines.push(`- Derived action: ${formatPlanReviewFindingAction(finding)}`);
       lines.push(`- Location: ${formatPlanLineRange(finding)}`);
       lines.push(`- Risk: ${finding.risk}`);
       lines.push(`- Recommendation: ${finding.recommendation}`);
