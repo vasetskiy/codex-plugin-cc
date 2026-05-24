@@ -94,7 +94,15 @@ test("renderPlanReviewResult renders findings-first markdown with plan readiness
       },
       rawOutput: "",
       parseError: null,
-      validation: { ok: true, errors: [] }
+      validation: { ok: true, errors: [] },
+      readiness: {
+        schema_version: "plan-review-readiness/v1",
+        status: "blocked",
+        implementation_allowed: false,
+        requires_re_review: true,
+        next_action: "edit-plan-and-rerun-review",
+        reasons: [{ type: "finding", index: 0, message: "Migration order is underspecified" }]
+      }
     },
     {
       planPath: "docs/plan.md"
@@ -103,12 +111,34 @@ test("renderPlanReviewResult renders findings-first markdown with plan readiness
 
   assert.match(output, /^# Codex Plan Review/);
   assert.match(output, /Plan: docs\/plan\.md/);
+  assert.match(output, /Readiness: blocked/);
+  assert.match(output, /Implementation allowed: no/);
+  assert.match(output, /Next action: edit-plan-and-rerun-review/);
   assert.match(output, /Findings:/);
   assert.match(output, /\| Severity \| Readiness effect \| Re-review \| Finding \| Location \|/);
   assert.match(output, /Migration order is underspecified/);
+  assert.match(output, /Derived action: edit the plan before implementation and rerun plan-review/);
   assert.match(output, /Requires verify:/);
   assert.match(output, /Coverage:/);
   assert.match(output, /Residual risks:/);
+});
+
+test("renderPlanReviewResult renders invalid-result readiness for malformed output", () => {
+  const output = renderPlanReviewResult(
+    {
+      parsed: null,
+      rawOutput: "not json",
+      parseError: "Unexpected token o in JSON",
+      validation: { ok: false, errors: ["Unexpected token o in JSON"] }
+    },
+    {
+      planPath: "docs/plan.md"
+    }
+  );
+
+  assert.match(output, /Readiness: invalid-result/);
+  assert.match(output, /Implementation allowed: no/);
+  assert.match(output, /Next action: rerun-plan-review/);
 });
 
 test("renderPlanReviewResult puts policy failure before captured output", () => {

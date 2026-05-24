@@ -68,6 +68,28 @@ Top-level fields include:
 - required verification questions, when applicable
 - coverage notes and residual risks
 
+The companion also derives a runtime-owned readiness block. This block is not
+part of the model-owned `plan-review-output/v1` schema. It is deterministic
+metadata computed from the parsed result, validation result, and read-only policy
+audit.
+
+Readiness statuses are:
+
+- `ready`: implementation can start.
+- `ready-with-implementation-notes`: implementation can start, carrying
+  non-blocking findings into the work.
+- `revise-before-start`: edit or clarify the plan before implementation.
+- `blocked`: answer a blocking verification question or fix a blocking plan
+  issue before implementation.
+- `invalid-result`: rerun plan review because Codex returned malformed or
+  schema-invalid output.
+- `policy-failed`: inspect the policy failure because Codex violated the
+  read-only plan-review policy.
+
+The readiness block includes implementation allowed, requires re-review, next
+action, and compact reasons. Finding details also include a derived action so
+the gate does not have to be inferred from severity alone.
+
 Each finding includes:
 
 - severity

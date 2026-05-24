@@ -304,6 +304,10 @@ test("plan-review runs a read-only structured review for a plan file", () => {
   assert.equal(payload.runtime.command.mode, "wait");
   assert.equal(payload.runtime.turnId, payload.turnId);
   assert.equal(Number.isInteger(payload.runtime.elapsedMs), true);
+  assert.equal(payload.readiness.schema_version, "plan-review-readiness/v1");
+  assert.equal(payload.readiness.status, "ready");
+  assert.equal(payload.readiness.implementation_allowed, true);
+  assert.equal(payload.readiness.next_action, "start-implementation");
   assert.equal(payload.policyViolation.violated, false);
 
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
@@ -366,6 +370,8 @@ test("plan-review fails with preserved diagnostics when Codex violates read-only
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.policyViolation.violated, true);
   assert.deepEqual(payload.policyViolation.forbiddenCommands.map((entry) => entry.command), ["npm test"]);
+  assert.equal(payload.readiness.status, "policy-failed");
+  assert.equal(payload.readiness.implementation_allowed, false);
   assert.equal(payload.rawOutput.includes("plan-review-output/v1"), true);
 
   const status = run("node", [SCRIPT, "status", "--json"], {

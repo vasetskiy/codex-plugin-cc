@@ -26,6 +26,7 @@ import {
   auditPlanReviewPolicy,
   buildPlanReviewPrompt,
   collectPlanReviewSeedContext,
+  derivePlanReviewReadiness,
   validatePlanReviewResult
 } from "./lib/plan-review.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
@@ -581,6 +582,7 @@ async function executePlanReviewRun(request) {
     ? validatePlanReviewResult(parsed.parsed, seed)
     : { ok: false, errors: parsed.parseError ? [parsed.parseError] : ["Missing structured output."] };
   const policyViolation = auditPlanReviewPolicy(result);
+  const readiness = derivePlanReviewReadiness({ parsed: parsed.parsed, validation, policyViolation });
   const exitStatus =
     policyViolation.violated || parsed.parseError || !validation.ok
       ? 1
@@ -625,6 +627,7 @@ async function executePlanReviewRun(request) {
     rawOutput: parsed.rawOutput,
     parseError: parsed.parseError,
     validation,
+    readiness,
     policyViolation,
     reasoningSummary: result.reasoningSummary
   };
@@ -634,6 +637,7 @@ async function executePlanReviewRun(request) {
       rawOutput: parsed.rawOutput,
       parseError: parsed.parseError,
       validation,
+      readiness,
       policyViolation,
       reasoningSummary: result.reasoningSummary
     },
