@@ -13,7 +13,17 @@ const PLUGIN_ROOT = path.resolve(fileURLToPath(new URL("../..", import.meta.url)
 const PLAN_REVIEW_SEED_SCHEMA = "plan-review-seed/v1";
 const PLAN_REVIEW_OUTPUT_SCHEMA = "plan-review-output/v1";
 const GUIDE_FILENAMES = ["AGENTS.md", "CLAUDE.md", "README.md"];
-const ADJACENT_CONTEXT_FILENAMES = ["state.md", "current-state.md", "current-state", "decisions.md", "plan.md"];
+const ADJACENT_CONTEXT_FILENAMES = [
+  "state.md",
+  "current-state.md",
+  "current-state",
+  "current_state.md",
+  "CURRENT_STATE.md",
+  "decisions.md",
+  "plan.md"
+];
+const MAX_ATTACHED_ADJACENT_CONTEXT_FILES = 4;
+const MAX_ATTACHED_CONTEXT_BYTES = 16 * 1024;
 const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low"]);
 const VALID_READINESS_EFFECTS = new Set([
   "blocks-implementation",
@@ -51,6 +61,10 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function sha256Buffer(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
 function readGitStatus(repoRoot) {
   return runCommandChecked("git", ["status", "--short", "--untracked-files=all"], { cwd: repoRoot }).stdout.trim();
 }
@@ -66,10 +80,15 @@ function roleForGuide(filename) {
 }
 
 function roleForAdjacent(filename) {
-  if (filename === "state.md" || filename.includes("current-state")) {
+  const normalized = filename.toLowerCase();
+  if (
+    normalized === "state.md" ||
+    normalized.includes("current-state") ||
+    normalized.includes("current_state")
+  ) {
     return "current-state";
   }
-  if (filename === "decisions.md") {
+  if (normalized === "decisions.md") {
     return "decisions";
   }
   return "adjacent-context";
@@ -158,7 +177,62 @@ function collectAdjacentContextCandidates(repoRoot, planDir, planAbsolutePath) {
       });
     }
   }
-  return dedupeCandidates(candidates);
+  return dedupeCandidates(candidates).map((candidate, index) => ({
+    ...candidate,
+    read_by_default: index < MAX_ATTACHED_ADJACENT_CONTEXT_FILES
+  }));
+}
+
+function decodeUtf8Prefix(buffer, maxBytes) {
+  let end = Math.min(buffer.length, maxBytes);
+  while (end > 0) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, end));
+    } catch {
+      end -= 1;
+    }
+  }
+  return "";
+}
+
+function readAttachedContext(repoRoot, candidate) {
+  const absolutePath = path.join(repoRoot, candidate.path);
+  const buffer = fs.readFileSync(absolutePath);
+  if (!isProbablyText(buffer)) {
+    return null;
+  }
+
+  let text;
+  try {
+    text =
+      buffer.length > MAX_ATTACHED_CONTEXT_BYTES
+        ? decodeUtf8Prefix(buffer, MAX_ATTACHED_CONTEXT_BYTES)
+        : new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return null;
+  }
+
+  const lines = splitLines(text);
+  const includedByteLength = Buffer.byteLength(text, "utf8");
+  return {
+    path: candidate.path,
+    role: candidate.role,
+    selection_reason: candidate.selection_reason,
+    source: "adjacent_context_candidates",
+    sha256: sha256Buffer(buffer),
+    byte_length: buffer.length,
+    included_byte_length: includedByteLength,
+    included_line_count: lines.length,
+    truncated: includedByteLength < buffer.length,
+    lines: lines.map((line, index) => ({ line: index + 1, text: line }))
+  };
+}
+
+function collectAttachedContext(repoRoot, adjacentContextCandidates) {
+  return adjacentContextCandidates
+    .filter((candidate) => candidate.read_by_default)
+    .map((candidate) => readAttachedContext(repoRoot, candidate))
+    .filter(Boolean);
 }
 
 export function resolvePlanReviewPath(cwd, planPath) {
@@ -209,6 +283,11 @@ export function collectPlanReviewSeedContext(cwd, planPath) {
   const lines = splitLines(resolved.text);
   const planDir = path.dirname(resolved.absolutePath);
   const statusShort = readGitStatus(resolved.repoRoot);
+  const adjacentContextCandidates = collectAdjacentContextCandidates(
+    resolved.repoRoot,
+    planDir,
+    resolved.absolutePath
+  );
 
   return {
     schema_version: PLAN_REVIEW_SEED_SCHEMA,
@@ -226,11 +305,8 @@ export function collectPlanReviewSeedContext(cwd, planPath) {
       dirty: statusShort.length > 0
     },
     guidance_candidates: collectGuidanceCandidates(resolved.repoRoot, planDir),
-    adjacent_context_candidates: collectAdjacentContextCandidates(
-      resolved.repoRoot,
-      planDir,
-      resolved.absolutePath
-    ),
+    adjacent_context_candidates: adjacentContextCandidates,
+    attached_context: collectAttachedContext(resolved.repoRoot, adjacentContextCandidates),
     historical_artifacts_policy: {
       read_by_default: false,
       excluded_patterns: ["review*.md", "audit*", "postmortem*"],

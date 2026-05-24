@@ -27,13 +27,15 @@ Read historical artifacts only when the plan explicitly references them or when 
 <review_method>
 1. Fully read the plan text from the seed packet.
 2. Use the line-indexed plan text for stable finding locations.
-3. Inspect only relevant current repo code, tests, and docs.
-4. Use bounded subagents when they improve coverage without polluting the main context; keep final verdict ownership in the main run.
-5. Compare the plan against current implementation seams and constraints.
-6. Report only material readiness findings backed by concrete evidence.
-7. Put bounded uncertainty in `requires_verify`; do not inflate it into a finding.
-8. Do not include informational-only notes in findings.
-9. If there are no material findings, return `approve` with meaningful coverage.
+3. Read any line-indexed attached context (`attached_context`) entries in the seed
+   before deciding what extra context to inspect.
+4. Inspect only relevant current repo code, tests, and docs.
+5. Use bounded subagents when they improve coverage without polluting the main context; keep final verdict ownership in the main run.
+6. Compare the plan against current implementation seams and constraints.
+7. Report only material readiness findings backed by concrete evidence.
+8. Put bounded uncertainty in `requires_verify`; do not inflate it into a finding.
+9. Do not include informational-only notes in findings.
+10. If there are no material findings, return `approve` with meaningful coverage.
 </review_method>
 
 <structured_output_contract>

@@ -25,6 +25,7 @@ function makeRepoWithPlan() {
   const repo = makeTempDir();
   initGitRepo(repo);
   writeFile(path.join(repo, "AGENTS.md"), "# Root guide\n");
+  writeFile(path.join(repo, "CURRENT_STATE.md"), "# Root current state\n\nM1 is active.\n");
   writeFile(path.join(repo, "projects", "active", "demo", "CLAUDE.md"), "# Project guide\n");
   writeFile(path.join(repo, "projects", "active", "demo", "state.md"), "# Current state\n");
   writeFile(path.join(repo, "projects", "active", "demo", "plan.md"), "# Parent project plan\n");
@@ -107,12 +108,49 @@ test("collectPlanReviewSeedContext builds bounded deterministic seed context", (
       ["AGENTS.md", true]
     ]
   );
-  assert.deepEqual(seed.adjacent_context_candidates.map((candidate) => candidate.path), [
-    "projects/active/demo/state.md",
-    "projects/active/demo/plan.md"
+  assert.deepEqual(
+    seed.adjacent_context_candidates.map((candidate) => [candidate.path, candidate.role, candidate.read_by_default]),
+    [
+      ["projects/active/demo/state.md", "current-state", true],
+      ["projects/active/demo/plan.md", "adjacent-context", true],
+      ["CURRENT_STATE.md", "current-state", true]
+    ]
+  );
+  assert.deepEqual(
+    seed.attached_context.map((entry) => [entry.path, entry.role, entry.truncated]),
+    [
+      ["projects/active/demo/state.md", "current-state", false],
+      ["projects/active/demo/plan.md", "adjacent-context", false],
+      ["CURRENT_STATE.md", "current-state", false]
+    ]
+  );
+  assert.equal(seed.attached_context[0].source, "adjacent_context_candidates");
+  assert.match(seed.attached_context[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(seed.attached_context[0].byte_length, Buffer.byteLength("# Current state\n", "utf8"));
+  assert.deepEqual(seed.attached_context[0].lines, [
+    { line: 1, text: "# Current state" },
+    { line: 2, text: "" }
+  ]);
+  assert.deepEqual(seed.attached_context[2].lines.slice(0, 3), [
+    { line: 1, text: "# Root current state" },
+    { line: 2, text: "" },
+    { line: 3, text: "M1 is active." }
   ]);
   assert.equal(seed.historical_artifacts_policy.read_by_default, false);
   assert.match(seed.historical_artifacts_policy.summary, /review\*\.md/);
+});
+
+test("collectPlanReviewSeedContext bounds attached adjacent context content", () => {
+  const repo = makeRepoWithPlan();
+  const statePath = path.join(repo, "projects", "active", "demo", "state.md");
+  writeFile(statePath, `# Current state\n${"x".repeat(20 * 1024)}\n`);
+
+  const seed = collectPlanReviewSeedContext(repo, "projects/active/demo/plan/plan.md");
+  const stateContext = seed.attached_context.find((entry) => entry.path === "projects/active/demo/state.md");
+
+  assert.equal(stateContext.truncated, true);
+  assert.equal(stateContext.lines[0].text, "# Current state");
+  assert.ok(stateContext.included_byte_length < stateContext.byte_length);
 });
 
 test("buildPlanReviewPrompt includes the seed packet and plan-review method", () => {
@@ -125,6 +163,7 @@ test("buildPlanReviewPrompt includes the seed packet and plan-review method", ()
   assert.match(prompt, /"plan_sha256":/);
   assert.match(prompt, /1\. Change the loader\./);
   assert.match(prompt, /claim\/scope map/i);
+  assert.match(prompt, /attached context/i);
   assert.match(prompt, /bounded subagents/i);
   assert.match(prompt, /read-only/i);
   assert.match(prompt, /do not run tests/i);

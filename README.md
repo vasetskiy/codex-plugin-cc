@@ -148,6 +148,11 @@ Examples:
 
 The plan path must point to a text file inside the current git repository. Untracked plan files are supported.
 
+The deterministic seed includes the plan text, nearby guidance candidates,
+adjacent context candidates, and bounded line-indexed content for selected
+current-state or adjacent plan docs such as `state.md`, `CURRENT_STATE.md`, and
+nearby `plan.md`.
+
 The result is findings-first markdown. For each material issue, Codex reports severity, readiness effect, whether a plan edit needs re-review, plan line location, evidence, risk, recommendation, and options when useful. If there are no material findings, the verdict is `approve`.
 
 This command is read-only. It does not run tests, builds, migrations, docker, linters, or typecheckers as part of the review. If Codex attempts one of those commands or applies a file change, the companion marks the job failed and stores the policy violation diagnostics.

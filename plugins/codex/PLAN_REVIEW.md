@@ -47,7 +47,8 @@ The review starts from a deterministic seed packet that includes:
 - the normalized repository path of the plan
 - repository root, command cwd, branch, and short git status
 - nearby guidance candidates such as `AGENTS.md`, `CLAUDE.md`, and `README.md`
-- adjacent context candidates such as `state.md`, `current-state.md`, `decisions.md`, and nearby `plan.md`
+- adjacent context candidates such as `state.md`, `current-state.md`, `CURRENT_STATE.md`, `decisions.md`, and nearby `plan.md`
+- bounded line-indexed attached context for selected adjacent context files
 
 Codex is instructed to build a claim and scope map before deciding readiness. It checks declared touchpoints, assumptions, verification gates, non-goals, deferred scope, and risk domains such as data loss, auth, migrations, concurrency, rollback, and UX.
 
