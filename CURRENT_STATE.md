@@ -11,11 +11,12 @@ Current checkout:
 - Base: `origin/main`
 - Base HEAD: `99c2105 Merge pull request #5 from vasetskiy/codex/current-state-after-touchpoint-presweep`
 - Open PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
+- PR state: open normal PR, not draft; GitHub reports `CLEAN` /
+  `MERGEABLE` after the conflict-resolution push.
 - Latest readiness product commit: `0abd81f Add plan-review readiness gate`
 - Merge-conflict resolution: `origin/main` was merged into this branch to pick
   up PR #5, and the only conflict was this `CURRENT_STATE.md` handoff file.
-- Worktree: expected to be clean after committing and pushing this conflict
-  resolution refresh.
+- Worktree: clean after committing and pushing this conflict-resolution refresh.
 
 The fork `main` now includes the base environment work, M1 plan-review attached
 context work, the env/process GitHub workflow follow-up, deterministic
@@ -205,7 +206,7 @@ Implementation details:
 1. Stay on branch `codex/plan-review-readiness-gate`.
 2. Inspect PR #6:
    `https://github.com/vasetskiy/codex-plugin-cc/pull/6`.
-3. Confirm GitHub reports the PR as mergeable after the conflict-resolution push.
+3. PR #6 was confirmed clean/mergeable after the conflict-resolution push.
 4. If PR #6 is merged, sync local `main` with `origin/main`, rerun the standard
    validation, and refresh this file to the merged state.
 5. After merge/sync, delete the feature branch locally/remotely if no follow-up
