@@ -537,9 +537,17 @@ function summarizePlanReviewSeed(seed) {
       role: candidate.role,
       read_by_default: candidate.read_by_default
     })),
+    declared_touchpoints: seed.declared_touchpoints.map((candidate) => ({
+      path: candidate.path,
+      role: candidate.role,
+      status: candidate.status,
+      read_by_default: candidate.read_by_default,
+      references: candidate.references
+    })),
     attached_context: seed.attached_context.map((entry) => ({
       path: entry.path,
       role: entry.role,
+      source: entry.source,
       sha256: entry.sha256,
       byte_length: entry.byte_length,
       included_byte_length: entry.included_byte_length,

@@ -149,9 +149,9 @@ Examples:
 The plan path must point to a text file inside the current git repository. Untracked plan files are supported.
 
 The deterministic seed includes the plan text, nearby guidance candidates,
-adjacent context candidates, and bounded line-indexed content for selected
-current-state or adjacent plan docs such as `state.md`, `CURRENT_STATE.md`, and
-nearby `plan.md`.
+adjacent context candidates, declared implementation touchpoints from path-like
+plan references, and bounded line-indexed content for selected current-state,
+adjacent plan, and touchpoint files.
 
 The result is findings-first markdown. For each material issue, Codex reports severity, readiness effect, whether a plan edit needs re-review, plan line location, evidence, risk, recommendation, and options when useful. If there are no material findings, the verdict is `approve`.
 

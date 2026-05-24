@@ -153,6 +153,48 @@ test("collectPlanReviewSeedContext bounds attached adjacent context content", ()
   assert.ok(stateContext.included_byte_length < stateContext.byte_length);
 });
 
+test("collectPlanReviewSeedContext pre-sweeps declared implementation touchpoints", () => {
+  const repo = makeRepoWithPlan();
+  writeFile(path.join(repo, "src", "loader.js"), "export function load() {\n  return null;\n}\n");
+  writeFile(path.join(repo, "tests", "loader.test.js"), "import { load } from '../src/loader.js';\n");
+  writeFile(
+    path.join(repo, "projects", "active", "demo", "plan", "touchpoints.md"),
+    [
+      "# Touchpoint plan",
+      "",
+      "1. Update `src/loader.js` to support cached reads.",
+      "2. Cover it in `tests/loader.test.js` and keep `src/loader.js` exports stable.",
+      "3. If `src/missing.js` exists, remove the obsolete bridge.",
+      ""
+    ].join("\n")
+  );
+
+  const seed = collectPlanReviewSeedContext(repo, "projects/active/demo/plan/touchpoints.md");
+
+  assert.deepEqual(
+    seed.declared_touchpoints.map((entry) => [
+      entry.path,
+      entry.status,
+      entry.read_by_default,
+      entry.references.map((reference) => reference.line)
+    ]),
+    [
+      ["src/loader.js", "attached", true, [3, 4]],
+      ["tests/loader.test.js", "attached", true, [4]],
+      ["src/missing.js", "missing", false, [5]]
+    ]
+  );
+  assert.deepEqual(
+    seed.attached_context
+      .filter((entry) => entry.source === "declared_touchpoints")
+      .map((entry) => [entry.path, entry.role, entry.lines[0]]),
+    [
+      ["src/loader.js", "implementation-touchpoint", { line: 1, text: "export function load() {" }],
+      ["tests/loader.test.js", "implementation-touchpoint", { line: 1, text: "import { load } from '../src/loader.js';" }]
+    ]
+  );
+});
+
 test("buildPlanReviewPrompt includes the seed packet and plan-review method", () => {
   const repo = makeRepoWithPlan();
   const seed = collectPlanReviewSeedContext(repo, "projects/active/demo/plan/plan.md");
@@ -163,6 +205,7 @@ test("buildPlanReviewPrompt includes the seed packet and plan-review method", ()
   assert.match(prompt, /"plan_sha256":/);
   assert.match(prompt, /1\. Change the loader\./);
   assert.match(prompt, /claim\/scope map/i);
+  assert.match(prompt, /declared touchpoints/i);
   assert.match(prompt, /attached context/i);
   assert.match(prompt, /bounded subagents/i);
   assert.match(prompt, /read-only/i);
