@@ -7,19 +7,23 @@ Date: 2026-05-24
 Current checkout:
 
 - Branch: `codex/plan-review-readiness-gate`
-- Upstream/base: `origin/main`
+- Upstream: `origin/codex/plan-review-readiness-gate`
+- Base: `origin/main`
 - Base HEAD: `92ae000 Merge pull request #4 from vasetskiy/codex/plan-review-touchpoint-presweep`
-- Latest product/design commit before this refresh: `9e57180 docs: add plan review readiness gate design`
-- Worktree: clean after committing this current-state refresh
+- Latest product commit: `0abd81f Add plan-review readiness gate`
+- Open PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
+- Worktree: dirty only with this `CURRENT_STATE.md` handoff refresh before the
+  refresh commit/push
 
 The fork `main` now includes the base maintainer environment work, M1
 plan-review attached context work, the env/process GitHub workflow follow-up,
 and the deterministic touchpoint pre-sweep increment.
 
-The active branch starts the next `/codex:plan-review` product increment:
-deterministic read-only readiness derivation and renderer/docs/tests around the
-existing structured plan-review result. No shipped plugin behavior has been
-implemented yet on this branch.
+The active branch now contains the committed `/codex:plan-review`
+readiness-gate implementation and an open normal PR against fork `main`. The
+implementation adds deterministic companion-owned readiness derivation, runtime
+payload storage, markdown rendering, derived finding actions, docs, and tests.
+The model-owned `plan-review-output/v1` schema remains unchanged.
 
 ## Completed Base Work
 
@@ -120,7 +124,7 @@ Checks run for that work before PR:
 - `npm run build`: passed, with only the known PATH/read-only warning during
   `codex app-server generate-ts`.
 
-## Readiness Gate Design Work
+## Readiness Gate Work
 
 Current active branch: `codex/plan-review-readiness-gate`.
 
@@ -142,45 +146,61 @@ Decision from comparison with `/home/vasetskiy/work/shift-happens`:
   existing structured plan-review result, validation result, and policy audit.
 - Keep `/codex:plan-review` read-only.
 
-No implementation code has been changed yet for this increment.
+Implementation committed and pushed:
+
+- PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
+- Product commit: `0abd81f Add plan-review readiness gate`
+- Current-state refresh commit: pending at the time this handoff text is being
+  edited
+
+- Added `derivePlanReviewReadiness` in
+  `plugins/codex/scripts/lib/plan-review.mjs`.
+- Stored readiness in the plan-review runtime payload in
+  `plugins/codex/scripts/codex-companion.mjs`.
+- Rendered readiness status, implementation allowance, next action, and
+  per-finding derived actions in `plugins/codex/scripts/lib/render.mjs`.
+- Updated tests in `tests/plan-review.test.mjs`, `tests/render.test.mjs`, and
+  `tests/runtime.test.mjs`.
+- Updated user-facing docs in `README.md`, `plugins/codex/PLAN_REVIEW.md`, and
+  `plugins/codex/PLAN_REVIEW_COMMAND_PLAN.md`.
+- Saved and executed the implementation plan:
+  `docs/superpowers/plans/2026-05-24-plan-review-readiness-gate.md`.
 
 ## Next Session Start Here
 
 1. Stay on branch `codex/plan-review-readiness-gate`.
-2. Read `AGENTS.md`, this `CURRENT_STATE.md`,
-   `plugins/codex/PLAN_REVIEW.md`,
-   `plugins/codex/PLAN_REVIEW_COMMAND_PLAN.md`, and
-   `docs/superpowers/specs/2026-05-24-plan-review-readiness-gate-design.md`.
-3. Write the implementation plan for the readiness derivation slice.
-4. Execute with TDD:
-   - failing tests first in `tests/plan-review.test.mjs`,
-     `tests/render.test.mjs`, and `tests/runtime.test.mjs`;
-   - then implement in `plugins/codex/scripts/lib/plan-review.mjs`,
-     `plugins/codex/scripts/lib/render.mjs`, and
-     `plugins/codex/scripts/codex-companion.mjs`;
-   - then update `README.md`, `plugins/codex/PLAN_REVIEW.md`, and
-     `plugins/codex/PLAN_REVIEW_COMMAND_PLAN.md`.
-5. Preserve the model-owned `plan-review-output/v1` schema unless implementation
-   proves a schema change is necessary. The readiness block should be
-   companion-owned runtime metadata.
-6. Keep future plan-review replacement work separate from env/process updates
+2. Inspect PR #6:
+   `https://github.com/vasetskiy/codex-plugin-cc/pull/6`.
+3. If PR #6 is merged, sync local `main` with `origin/main`, rerun the standard
+   validation, and refresh this file to the merged state.
+4. After merge/sync, delete the feature branch locally/remotely if no follow-up
+   work is needed.
+5. Keep future plan-review replacement work separate from env/process updates
    unless explicitly requested.
-7. Keep PR targets inside the fork unless instructed otherwise.
+6. Keep PR targets inside the fork unless instructed otherwise.
 
 ## Validation Status
 
-No validation commands were run after the design-only commit or this
-current-state refresh.
+Latest validation before opening PR #6:
 
-Before opening a PR for the readiness-gate implementation, run:
+- `node --test tests/plan-review.test.mjs tests/render.test.mjs`: passed, 15/15.
+- `node --test --test-name-pattern "plan-review runs a read-only structured review|plan-review fails with preserved diagnostics" tests/runtime.test.mjs`: passed, 2 matched tests.
+- `node --test tests/*.test.mjs`: passed, 104/104.
+- `npm run check-version`: passed, version metadata matched `1.0.4`.
+- `git diff --check`: passed.
+- `npm run build`: passed, with only the known PATH/read-only warning during
+  `codex app-server generate-ts`.
 
-- `node --test tests/*.test.mjs`
-- `npm run check-version`
-- `npm run build`
+If additional code/docs/test edits happen after this current-state refresh,
+rerun the relevant tests and the full validation set above.
 
-If `npm run build` fails because Codex CLI or app-server generation is
-unavailable in the environment, report that directly and do not fake generated
-files.
+## Session Cleanup Notes
+
+- Normal PR #6 is open; no draft conversion is needed.
+- This checkout is a normal repository checkout, not a linked worktree, so there
+  is no worktree directory to remove.
+- Leave the branch checked out for PR iteration. After PR #6 is merged, sync
+  `main`, refresh this file again, then remove the feature branch if desired.
 
 ## Constraints To Preserve
 
