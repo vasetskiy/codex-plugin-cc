@@ -105,6 +105,8 @@ current task scope and update docs/tests with any behavior change.
 - Prefer `rg` and focused file reads for exploration.
 - Do not push to the upstream main branch that this work was forked from. Push
   only to the fork.
+- Do not create draft pull requests. Open normal pull requests so the user can
+  review and merge them manually.
 - Keep maintainer-only guidance in root repo surfaces, not in shipped plugin assets.
 - Do not edit sibling repositories from this working tree. Read adjacent projects only
   when a task explicitly requires comparison or evidence.

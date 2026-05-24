@@ -1,80 +1,121 @@
 # Current State
 
-Date: 2026-05-23
+Date: 2026-05-24
 
-## Where We Stopped
+## Where We Are
 
-M0 for the `codex-cc` development environment is implemented in root repo
-surfaces. The app-server build blocker from the generated protocol contract was
-also fixed with the smallest runtime compatibility change.
+Current checkout:
 
-Added root environment files:
+- Branch: `codex/maintainer-env-gh-workflow`
+- Base: `origin/main` at `0c283b1`
+- Purpose: env/process follow-up for GitHub CLI access and repo workflow rules.
 
-- `AGENTS.md`
+Current intended changes:
+
 - `.codex/config.toml`
-- `.codex/agents/plan-review-readonly-auditor.md`
-- `.codex/agents/command-contract-reviewer.md`
-- `.codex/agents/plugin-runtime-maintainer.md`
-- `.codex/agents/shift-happens-flow-comparator.md`
-
-The new root guidance captures:
-
-- source-of-truth order
-- package boundary between root maintainer surfaces and shipped plugin files
-- active docs and code surfaces
-- command/test matrix
-- versioning rules
-- known `/codex:plan-review` risk areas from the external review note
-
-Runtime/test changes:
-
-- `plugins/codex/scripts/lib/app-server.mjs`: default initialize capabilities now
-  include `requestAttestation: false`, matching the generated
-  `InitializeCapabilities` contract without opting into attestation requests.
-- `tests/runtime.test.mjs`: setup coverage asserts the default app-server
-  initialize payload keeps `requestAttestation` disabled.
-
-## Verification Run
-
-Commands run from `/home/vasetskiy/work/codex-cc`:
-
-- `node --test tests/*.test.mjs`: passed, 98/98.
-- `npm run check-version`: passed, all version metadata matches `1.0.4`.
-- `npm ci`: run in the previous pass because the first build attempt failed with
-  `tsc: not found`.
-- `npm run build`: passed after the `requestAttestation: false` compatibility fix.
-
-## Worktree State
-
-At the time this state file was updated, expected tracked modifications are:
-
-- `plugins/codex/scripts/lib/app-server.mjs`
-- `tests/runtime.test.mjs`
-
-Expected untracked files are:
-
-- `.codex/`
 - `AGENTS.md`
 - `CURRENT_STATE.md`
 
-`node_modules/` and `plugins/codex/.generated/` may exist locally after
-verification, but they are ignored by git.
+These are intentionally separate from the M1 plan-review PR.
 
-## Next Steps
+## Completed Base Work
 
-1. Review whether to commit the M0 repo-environment files and the app-server
-   capability compatibility fix together or split them into separate commits.
-2. If splitting commits, keep root maintainer surfaces separate from shipped
-   plugin runtime/test changes.
-3. No known local verification blocker remains after the latest run.
+PR #1 in the fork was merged into `vasetskiy/codex-plugin-cc:main`.
+
+- URL: `https://github.com/vasetskiy/codex-plugin-cc/pull/1`
+- Merge commit: `0c283b1`
+- Base/head: `main <- maintainer-env-app-server-capabilities`
+
+The merge included:
+
+- `d3152ae Add Codex maintainer environment`
+- `37832be Fix app-server initialize capabilities`
+
+Checks before PR #1:
+
+- `node --test tests/*.test.mjs`: passed, 98/98.
+- `npm run check-version`: passed, version metadata matched `1.0.4`.
+- `npm run build`: passed.
+
+## M1 Plan Review PR
+
+M1 is open as a normal PR in the fork:
+
+- URL: `https://github.com/vasetskiy/codex-plugin-cc/pull/2`
+- Branch: `codex/plan-review-attached-context`
+- Commit: `ba36a0e Attach bounded plan-review context`
+
+That PR adds bounded attached adjacent context for `/codex:plan-review` and
+updates docs, prompt, companion summary, and tests.
+
+Checks run for that M1 work before push:
+
+- `node --test tests/*.test.mjs`: passed, 99/99.
+- `npm run check-version`: passed.
+- `npm run build`: passed, with only the known PATH/read-only warning during
+  `codex app-server generate-ts`.
+
+`CURRENT_STATE.md` and env/process changes were intentionally not included in
+the M1 commit.
+
+## GitHub CLI / Env Fix
+
+`gh` failed inside Codex because the neighboring Claude session used the system
+keyring, while Codex's sandboxed `gh` saw `~/.config/gh/hosts.yml` without a
+usable token and repo config had network disabled.
+
+Fixed during this session:
+
+- Copied the working GitHub keyring token into `~/.config/gh/hosts.yml` using
+  `gh auth login --with-token --insecure-storage`.
+- Updated `.codex/config.toml` to set `[sandbox_workspace_write].network_access`
+  to `true`, so Codex sessions can use normal `gh` network access.
+
+Verified in the current Codex session:
+
+- `gh auth status -h github.com`: OK, token read from `hosts.yml`.
+- `gh api user --jq .login`: OK, returned `vasetskiy`.
+
+## New Repo Rules Added
+
+`AGENTS.md` now includes:
+
+- Do not push to the upstream main branch that this work was forked from. Push
+  only to the fork.
+- Do not create draft pull requests. Open normal pull requests so the user can
+  review and merge them manually.
+
+## Env / Process Follow-up Branch
+
+Env/process follow-up is open as a normal PR in the fork:
+
+- URL: `https://github.com/vasetskiy/codex-plugin-cc/pull/3`
+- Branch: `codex/maintainer-env-gh-workflow`
+
+This branch should contain only:
+
+- The repo-local Codex network setting needed for GitHub workflows.
+- The repo rule that PRs should be opened as normal PRs, not draft PRs.
+- This refreshed handoff state.
+
+No shipped plugin files are changed in this follow-up branch.
+
+## Recommended Next Steps
+
+1. Review and merge env/process PR #3 when ready.
+2. Review and merge M1 PR #2 when ready.
+3. Keep future plan-review replacement work separate from these env/process
+   updates unless explicitly requested.
+4. Keep PR targets inside the fork unless instructed otherwise.
 
 ## Constraints To Preserve
 
+- Preserve unrelated user changes.
+- Do not push to the upstream main branch that this work was forked from. Push
+  only to the fork.
 - Do not use `plugins/codex/skills` as project memory; those are shipped plugin
   skills.
 - Do not turn `plugins/codex/agents/codex-rescue.md` into a researcher or
   reviewer; it is a shipped thin forwarder.
 - Do not edit adjacent projects such as `/home/vasetskiy/work/shift-happens`
   from this repository.
-- Keep future plan-review replacement work separate from this M0 environment
-  setup unless explicitly requested.
