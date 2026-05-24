@@ -12,8 +12,8 @@ Current checkout:
 - Base HEAD: `92ae000 Merge pull request #4 from vasetskiy/codex/plan-review-touchpoint-presweep`
 - Latest product commit: `0abd81f Add plan-review readiness gate`
 - Open PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
-- Worktree: dirty only with this `CURRENT_STATE.md` handoff refresh before the
-  refresh commit/push
+- Worktree: clean after the current-state/session-cleanup refresh is committed
+  and pushed
 
 The fork `main` now includes the base maintainer environment work, M1
 plan-review attached context work, the env/process GitHub workflow follow-up,
@@ -150,8 +150,8 @@ Implementation committed and pushed:
 
 - PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
 - Product commit: `0abd81f Add plan-review readiness gate`
-- Current-state refresh commit: pending at the time this handoff text is being
-  edited
+- Current-state/session-cleanup refresh: committed and pushed after the product
+  commit
 
 - Added `derivePlanReviewReadiness` in
   `plugins/codex/scripts/lib/plan-review.mjs`.
