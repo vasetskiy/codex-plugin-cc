@@ -87,6 +87,11 @@ Verified in the current Codex session:
 
 ## Env / Process Follow-up Branch
 
+Env/process follow-up is open as a normal PR in the fork:
+
+- URL: `https://github.com/vasetskiy/codex-plugin-cc/pull/3`
+- Branch: `codex/maintainer-env-gh-workflow`
+
 This branch should contain only:
 
 - The repo-local Codex network setting needed for GitHub workflows.
@@ -97,8 +102,7 @@ No shipped plugin files are changed in this follow-up branch.
 
 ## Recommended Next Steps
 
-1. Open a normal PR for `codex/maintainer-env-gh-workflow` targeting fork
-   `main`.
+1. Review and merge env/process PR #3 when ready.
 2. Review and merge M1 PR #2 when ready.
 3. Keep future plan-review replacement work separate from these env/process
    updates unless explicitly requested.
