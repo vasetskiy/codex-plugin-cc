@@ -6,23 +6,19 @@ Date: 2026-05-24
 
 Current checkout:
 
-- Branch: `codex/plan-review-readiness-gate`
-- Upstream: `origin/codex/plan-review-readiness-gate`
-- Base: `origin/main`
-- Base HEAD: `99c2105 Merge pull request #5 from vasetskiy/codex/current-state-after-touchpoint-presweep`
-- Open PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
-- PR state: open normal PR, not draft; GitHub reports `CLEAN` /
-  `MERGEABLE` after the conflict-resolution push.
+- Branch: `main`
+- Upstream: `origin/main`
+- HEAD: `9cffb2e Merge pull request #6 from vasetskiy/codex/plan-review-readiness-gate`
+- Latest merged PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
+- PR #6 state: merged.
 - Latest readiness product commit: `0abd81f Add plan-review readiness gate`
-- Merge-conflict resolution: `origin/main` was merged into this branch to pick
-  up PR #5, and the only conflict was this `CURRENT_STATE.md` handoff file.
-- Worktree: clean after committing and pushing this conflict-resolution refresh.
 
 The fork `main` now includes the base environment work, M1 plan-review attached
 context work, the env/process GitHub workflow follow-up, deterministic
-touchpoint pre-sweep work, and the post-touchpoint current-state refresh.
+touchpoint pre-sweep work, the post-touchpoint current-state refresh, and the
+`/codex:plan-review` readiness-gate increment.
 
-PR #6 contains the `/codex:plan-review` readiness-gate increment. It adds
+PR #6 added the `/codex:plan-review` readiness-gate increment. It adds
 deterministic companion-owned readiness derivation, runtime payload storage,
 markdown rendering, derived finding actions, docs, and tests. The model-owned
 `plan-review-output/v1` schema remains unchanged.
@@ -176,15 +172,20 @@ Decision from comparison with `/home/vasetskiy/work/shift-happens`:
   existing structured plan-review result, validation result, and policy audit.
 - Keep `/codex:plan-review` read-only.
 
-Implementation committed and pushed in PR #6:
+PR #6 in the fork was merged into `vasetskiy/codex-plugin-cc:main`.
 
 - PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
+- Merge commit: `9cffb2e`
+- Branch: `codex/plan-review-readiness-gate`
 - Product commit: `0abd81f Add plan-review readiness gate`
 - Current-state/session-cleanup commits:
   - `accb471 Update current state for readiness PR`
   - `a193654 Finalize current state for readiness PR`
-- Conflict-resolution merge from `origin/main`: this refresh resolves the only
-  conflict, which was in `CURRENT_STATE.md`.
+  - `a10f3ea Refresh readiness PR handoff after conflict fix`
+- Conflict-resolution merge from `origin/main` before final PR merge:
+  `d9dcba0 Merge main into readiness gate PR`.
+- The only PR merge conflict was in `CURRENT_STATE.md`; no shipped plugin/code
+  files conflicted.
 
 Implementation details:
 
@@ -203,17 +204,14 @@ Implementation details:
 
 ## Next Session Start Here
 
-1. Stay on branch `codex/plan-review-readiness-gate`.
-2. Inspect PR #6:
-   `https://github.com/vasetskiy/codex-plugin-cc/pull/6`.
-3. PR #6 was confirmed clean/mergeable after the conflict-resolution push.
-4. If PR #6 is merged, sync local `main` with `origin/main`, rerun the standard
-   validation, and refresh this file to the merged state.
-5. After merge/sync, delete the feature branch locally/remotely if no follow-up
-   work is needed.
-6. Keep future plan-review replacement work separate from env/process updates
+1. Start from `main`.
+2. Run `git fetch origin` and confirm `main` is at or ahead of `9cffb2e`.
+3. There is no active plan-review readiness PR; PR #6 is merged.
+4. Keep future plan-review replacement work separate from env/process updates
    unless explicitly requested.
-7. Keep PR targets inside the fork unless instructed otherwise.
+5. Keep PR targets inside the fork unless instructed otherwise.
+6. Remove the merged feature branch locally/remotely only when no further PR #6
+   follow-up inspection is needed.
 
 ## Validation Status
 
@@ -235,13 +233,26 @@ Latest validation after merging `origin/main` into PR #6 to resolve conflicts:
 - `npm run build`: passed, with only the known PATH/read-only warning during
   `codex app-server generate-ts`.
 
+Latest validation after syncing local `main` to merged PR #6:
+
+- `node --test tests/*.test.mjs`: one first post-merge run failed 103/104 on
+  the known intermittent
+  `task logs subagent reasoning and messages with a subagent prefix` runtime
+  assertion (`design-challenger` vs `thr_2`); the targeted rerun passed.
+- `node --test tests/*.test.mjs`: passed on rerun, 104/104.
+- `npm run check-version`: passed, version metadata matched `1.0.4`.
+- `git diff --check`: passed.
+- `npm run build`: passed, with only the known PATH/read-only warning during
+  `codex app-server generate-ts`.
+
 ## Session Cleanup Notes
 
-- Normal PR #6 is open; no draft conversion is needed.
+- PR #6 is merged.
 - This checkout is a normal repository checkout, not a linked worktree, so there
   is no worktree directory to remove.
-- Leave the branch checked out for PR iteration. After PR #6 is merged, sync
-  `main`, refresh this file again, then remove the feature branch if desired.
+- Local `main` has been fast-forwarded to `origin/main` at the PR #6 merge
+  commit.
+- The merged feature branch can be deleted after any desired PR #6 inspection.
 
 ## Constraints To Preserve
 
