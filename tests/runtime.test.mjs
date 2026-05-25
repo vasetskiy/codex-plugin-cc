@@ -316,6 +316,36 @@ test("plan-review runs a read-only structured review for a plan file", () => {
   assert.match(fakeState.lastTurnStart.prompt, /Change one thing\./);
 });
 
+test("plan-review fresh runs create persistent threads", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nFirst version.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "plan-review", "--json", "docs/plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  const thread = fakeState.threads.find((candidate) => candidate.id === payload.threadId);
+  assert.equal(thread.ephemeral, false);
+  assert.match(thread.name, /^Codex Plan Review: docs\/plan\.md$/);
+  assert.deepEqual(payload.runtime.resume, {
+    requested: false,
+    sourceJobId: null,
+    sourceThreadId: null,
+    sourceCompletedAt: null
+  });
+});
+
 test("plan-review status and result expose plan-review as its own job kind", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

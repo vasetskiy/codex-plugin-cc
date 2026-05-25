@@ -78,6 +78,7 @@ const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
+const PLAN_REVIEW_THREAD_PREFIX = "Codex Plan Review";
 
 function printUsage() {
   console.log(
@@ -565,13 +566,30 @@ async function executePlanReviewRun(request) {
 
   const seed = collectPlanReviewSeedContext(request.cwd, request.planPath);
   const prompt = buildPlanReviewPrompt(seed);
+  const resumeSource = request.resumeSource ?? null;
+  const resumeMetadata = resumeSource
+    ? {
+        requested: true,
+        sourceJobId: resumeSource.id,
+        sourceThreadId: resumeSource.threadId,
+        sourceCompletedAt: resumeSource.completedAt ?? null
+      }
+    : {
+        requested: false,
+        sourceJobId: null,
+        sourceThreadId: null,
+        sourceCompletedAt: null
+      };
   const startedAt = new Date();
   const result = await runAppServerTurn(seed.repo_root, {
+    resumeThreadId: resumeSource?.threadId ?? null,
     prompt,
     model: request.model,
     sandbox: "read-only",
     outputSchema: readOutputSchema(PLAN_REVIEW_SCHEMA),
-    onProgress: request.onProgress
+    onProgress: request.onProgress,
+    persistThread: !resumeSource,
+    threadName: resumeSource ? null : buildPersistentPlanReviewThreadName(seed.normalized_plan_path)
   });
   const completedAt = new Date();
   const parsed = parseStructuredOutput(result.finalMessage, {
@@ -597,6 +615,7 @@ async function executePlanReviewRun(request) {
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),
     elapsedMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
+    resume: resumeMetadata,
     command: {
       subcommand: "plan-review",
       cwd: request.cwd,
@@ -757,6 +776,11 @@ function buildTaskRunMetadata({ prompt, resumeLast = false }) {
     title,
     summary: shorten(prompt || fallbackSummary)
   };
+}
+
+function buildPersistentPlanReviewThreadName(normalizedPlanPath) {
+  const excerpt = shorten(normalizedPlanPath, 56);
+  return excerpt ? `${PLAN_REVIEW_THREAD_PREFIX}: ${excerpt}` : PLAN_REVIEW_THREAD_PREFIX;
 }
 
 function renderQueuedTaskLaunch(payload) {
