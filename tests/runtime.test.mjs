@@ -346,6 +346,52 @@ test("plan-review fresh runs create persistent threads", () => {
   });
 });
 
+test("plan-review --resume resumes the latest finished review for the same plan in the current session", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nFirst version.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const env = {
+    ...buildEnv(binDir),
+    CODEX_COMPANION_SESSION_ID: "sess-current"
+  };
+  const first = run("node", [SCRIPT, "plan-review", "--json", "docs/plan.md"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(first.status, 0, first.stderr);
+  const firstPayload = JSON.parse(first.stdout);
+
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nSecond version.\n");
+
+  const resumed = run("node", [SCRIPT, "plan-review", "--json", "--resume", "./docs/plan.md"], {
+    cwd: repo,
+    env
+  });
+
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const resumedPayload = JSON.parse(resumed.stdout);
+  assert.notEqual(resumedPayload.turnId, firstPayload.turnId);
+  assert.equal(resumedPayload.threadId, firstPayload.threadId);
+  assert.equal(resumedPayload.plan.normalized_plan_path, "docs/plan.md");
+  assert.equal(resumedPayload.runtime.resume.requested, true);
+  assert.equal(resumedPayload.runtime.resume.sourceJobId, firstPayload.runtime.jobId);
+  assert.match(resumedPayload.runtime.resume.sourceJobId, /^review-/);
+  assert.equal(resumedPayload.runtime.resume.sourceThreadId, firstPayload.threadId);
+  assert.match(resumedPayload.runtime.resume.sourceCompletedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadResume.threadId, firstPayload.threadId);
+  assert.equal(fakeState.lastTurnStart.threadId, firstPayload.threadId);
+  assert.match(fakeState.lastTurnStart.prompt, /Second version\./);
+});
+
 test("plan-review status and result expose plan-review as its own job kind", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

@@ -175,7 +175,7 @@ function parsePlanReviewInput(argv) {
       continue;
     }
 
-    if (token === "--json" || token === "--wait" || token === "--background") {
+    if (token === "--json" || token === "--wait" || token === "--background" || token === "--resume") {
       options[token.slice(2)] = true;
       continue;
     }
@@ -377,6 +377,41 @@ function findLatestResumableTaskJob(jobs) {
   );
 }
 
+function getStoredPlanReviewPath(workspaceRoot, job) {
+  const storedJob = readStoredJob(workspaceRoot, job.id);
+  return storedJob?.result?.plan?.normalized_plan_path ?? storedJob?.targetLabel ?? job.targetLabel ?? null;
+}
+
+function findPlanReviewJobsForPath(workspaceRoot, jobs, normalizedPlanPath) {
+  return jobs.filter((job) => {
+    if (job.kind !== "plan-review" || job.jobClass !== "review") {
+      return false;
+    }
+    return getStoredPlanReviewPath(workspaceRoot, job) === normalizedPlanPath;
+  });
+}
+
+function resolveLatestPlanReviewResumeSource(workspaceRoot, seed, options = {}) {
+  const jobs = sortJobsNewestFirst(listJobs(workspaceRoot)).filter((job) => job.id !== options.excludeJobId);
+  const visibleJobs = filterJobsForCurrentClaudeSession(jobs);
+  const matchingJobs = findPlanReviewJobsForPath(workspaceRoot, visibleJobs, seed.normalized_plan_path);
+  const active = matchingJobs.find((job) => isActiveJobStatus(job.status));
+  if (active) {
+    throw new Error(`Plan review ${active.id} is still ${active.status}. Use /codex:status ${active.id} before resuming it.`);
+  }
+
+  const finished = matchingJobs.find((job) => job.threadId && !isActiveJobStatus(job.status));
+  if (!finished) {
+    throw new Error(`No previous finished plan review was found for ${seed.normalized_plan_path}. Run /codex:plan-review ${seed.normalized_plan_path} first.`);
+  }
+
+  return {
+    id: finished.id,
+    threadId: finished.threadId,
+    completedAt: finished.completedAt ?? null
+  };
+}
+
 async function waitForSingleJobSnapshot(cwd, reference, options = {}) {
   const timeoutMs = Math.max(0, Number(options.timeoutMs) || DEFAULT_STATUS_WAIT_TIMEOUT_MS);
   const pollIntervalMs = Math.max(100, Number(options.pollIntervalMs) || DEFAULT_STATUS_POLL_INTERVAL_MS);
@@ -564,7 +599,7 @@ async function executePlanReviewRun(request) {
   ensureCodexAvailable(request.cwd);
   ensureGitRepository(request.cwd);
 
-  const seed = collectPlanReviewSeedContext(request.cwd, request.planPath);
+  const seed = request.seed ?? collectPlanReviewSeedContext(request.cwd, request.planPath);
   const prompt = buildPlanReviewPrompt(seed);
   const resumeSource = request.resumeSource ?? null;
   const resumeMetadata = resumeSource
@@ -610,6 +645,7 @@ async function executePlanReviewRun(request) {
   const runtime = {
     schema_version: "plan-review-runtime/v1",
     output_schema_version: "plan-review-output/v1",
+    jobId: request.jobId ?? null,
     threadId: result.threadId,
     turnId: result.turnId,
     startedAt: startedAt.toISOString(),
@@ -625,6 +661,7 @@ async function executePlanReviewRun(request) {
         wait: Boolean(commandOptions.wait),
         background: Boolean(commandOptions.background),
         json: Boolean(commandOptions.json),
+        resume: Boolean(commandOptions.resume),
         model: request.model ?? null
       }
     }
@@ -797,7 +834,7 @@ function getJobKindLabel(kind, jobClass) {
   return jobClass === "review" ? "review" : "rescue";
 }
 
-function createCompanionJob({ prefix, kind, title, workspaceRoot, jobClass, summary, write = false }) {
+function createCompanionJob({ prefix, kind, title, workspaceRoot, jobClass, summary, write = false, targetLabel = null }) {
   return createJobRecord({
     id: generateJobId(prefix),
     kind,
@@ -806,6 +843,7 @@ function createCompanionJob({ prefix, kind, title, workspaceRoot, jobClass, summ
     workspaceRoot,
     jobClass,
     summary,
+    ...(targetLabel ? { targetLabel } : {}),
     write
   });
 }
@@ -980,14 +1018,20 @@ async function handlePlanReview(argv) {
   const workspaceRoot = resolveCommandWorkspace(options);
   const model = normalizeRequestedModel(options.model);
   const planPath = positionals[0];
+  const seed = collectPlanReviewSeedContext(cwd, planPath);
+  const resumeRequested = Boolean(options.resume);
   const job = createCompanionJob({
     prefix: "review",
     kind: "plan-review",
     title: "Codex Plan Review",
     workspaceRoot,
     jobClass: "review",
-    summary: `Plan Review ${planPath}`
+    summary: `Plan Review ${seed.normalized_plan_path}`,
+    targetLabel: seed.normalized_plan_path
   });
+  const resumeSource = resumeRequested
+    ? resolveLatestPlanReviewResumeSource(workspaceRoot, seed, { excludeJobId: job.id })
+    : null;
 
   await runForegroundCommand(
     job,
@@ -996,10 +1040,14 @@ async function handlePlanReview(argv) {
         cwd,
         model,
         planPath,
+        seed,
+        resumeSource,
+        jobId: job.id,
         commandOptions: {
           wait: Boolean(options.wait),
           background: Boolean(options.background),
-          json: Boolean(options.json)
+          json: Boolean(options.json),
+          resume: resumeRequested
         },
         onProgress: progress
       }),
