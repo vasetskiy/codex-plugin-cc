@@ -88,7 +88,7 @@ test("plan-review command is a thin deterministic wrapper", () => {
   const source = read("commands/plan-review.md");
 
   assert.match(source, /description:\s*Run a Codex readiness review for a plan file/);
-  assert.match(source, /argument-hint:\s*'\[--wait\|--background\] <path\/to\/plan\.md>'/);
+  assert.match(source, /argument-hint:\s*'\[--wait\|--background\] \[--resume\] <path\/to\/plan\.md>'/);
   assert.match(source, /disable-model-invocation:\s*true/);
   assert.match(source, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion/);
   assert.doesNotMatch(source, /\bRead\b/);
@@ -96,6 +96,8 @@ test("plan-review command is a thin deterministic wrapper", () => {
   assert.doesNotMatch(source, /\bGlob\b/);
   assert.match(source, /Do not read the plan file/i);
   assert.match(source, /Preserve the user's arguments exactly/i);
+  assert.match(source, /`--resume` is parsed by the companion/i);
+  assert.match(source, /does not ask whether to continue/i);
   assert.match(source, /AskUserQuestion/);
   assert.match(source, /Wait for results/);
   assert.match(source, /Run in background/);
