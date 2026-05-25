@@ -8,15 +8,19 @@ Current checkout:
 
 - Branch: `main`
 - Upstream: `origin/main`
-- HEAD: `9cffb2e Merge pull request #6 from vasetskiy/codex/plan-review-readiness-gate`
+- HEAD: `07f228b Update current state after readiness merge`
 - Latest merged PR: `https://github.com/vasetskiy/codex-plugin-cc/pull/6`
 - PR #6 state: merged.
+- Open PRs in the fork: none as of this handoff refresh.
+- PR #6 merge commit: `9cffb2e Merge pull request #6 from vasetskiy/codex/plan-review-readiness-gate`
+- Post-merge current-state commit: `07f228b Update current state after readiness merge`
 - Latest readiness product commit: `0abd81f Add plan-review readiness gate`
 
 The fork `main` now includes the base environment work, M1 plan-review attached
 context work, the env/process GitHub workflow follow-up, deterministic
 touchpoint pre-sweep work, the post-touchpoint current-state refresh, and the
-`/codex:plan-review` readiness-gate increment.
+`/codex:plan-review` readiness-gate increment plus the post-readiness handoff
+refresh.
 
 PR #6 added the `/codex:plan-review` readiness-gate increment. It adds
 deterministic companion-owned readiness derivation, runtime payload storage,
@@ -152,7 +156,8 @@ Baseline validation recorded in PR #5:
 
 ## Readiness Gate Work
 
-Current active branch: `codex/plan-review-readiness-gate`.
+The feature branch was `codex/plan-review-readiness-gate`; it remains present
+locally and on `origin` after merge, but it is no longer active.
 
 Design-only commit:
 
@@ -205,8 +210,9 @@ Implementation details:
 ## Next Session Start Here
 
 1. Start from `main`.
-2. Run `git fetch origin` and confirm `main` is at or ahead of `9cffb2e`.
-3. There is no active plan-review readiness PR; PR #6 is merged.
+2. Run `git fetch origin` and confirm `main` is at or ahead of `07f228b`.
+3. There is no active plan-review readiness PR; PR #6 is merged and there are
+   no open PRs in `vasetskiy/codex-plugin-cc` at this refresh.
 4. Keep future plan-review replacement work separate from env/process updates
    unless explicitly requested.
 5. Keep PR targets inside the fork unless instructed otherwise.
@@ -245,14 +251,25 @@ Latest validation after syncing local `main` to merged PR #6:
 - `npm run build`: passed, with only the known PATH/read-only warning during
   `codex app-server generate-ts`.
 
+Resume checks in this session after `origin/main` advanced to `07f228b`:
+
+- `git fetch origin`: passed.
+- `git status --short --branch`: clean `main...origin/main`.
+- `git log -1 --oneline --decorate`: `07f228b (HEAD -> main, origin/main,
+  origin/HEAD) Update current state after readiness merge`.
+- `gh pr list --repo vasetskiy/codex-plugin-cc --state open`: no open PRs.
+- `gh auth status -h github.com`: OK for account `vasetskiy`.
+- `gh api user --jq .login`: returned `vasetskiy`.
+
 ## Session Cleanup Notes
 
 - PR #6 is merged.
 - This checkout is a normal repository checkout, not a linked worktree, so there
   is no worktree directory to remove.
-- Local `main` has been fast-forwarded to `origin/main` at the PR #6 merge
-  commit.
-- The merged feature branch can be deleted after any desired PR #6 inspection.
+- Local `main` matches `origin/main` at `07f228b`, the post-readiness
+  current-state refresh commit.
+- Merged feature branches remain present locally and on `origin`; delete them
+  only after any desired follow-up inspection.
 
 ## Constraints To Preserve
 
