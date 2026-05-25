@@ -136,7 +136,7 @@ Use it when you want:
 - a check that the plan matches the current code, tests, docs, and repository guidance
 - a structured verdict you can act on before handing implementation to Claude or Codex
 
-It supports `--wait` and `--background`. If you omit both, the slash-command wrapper asks once whether to wait or run in the background.
+It supports `--wait`, `--background`, and `--resume`. If you omit foreground/background flags, the slash-command wrapper asks once whether to wait or run in the background.
 
 Examples:
 
@@ -144,6 +144,7 @@ Examples:
 /codex:plan-review docs/plans/wave-1/plan.md
 /codex:plan-review --wait docs/plans/wave-1/plan.md
 /codex:plan-review --background docs/plans/wave-1/plan.md
+/codex:plan-review --resume docs/plans/wave-1/plan.md
 ```
 
 The plan path must point to a text file inside the current git repository. Untracked plan files are supported.
@@ -152,6 +153,10 @@ The deterministic seed includes the plan text, nearby guidance candidates,
 adjacent context candidates, declared implementation touchpoints from path-like
 plan references, and bounded line-indexed content for selected current-state,
 adjacent plan, and touchpoint files.
+
+Use `--resume` after editing the same plan when you want Codex to continue the
+previous plan-review thread while rebuilding the seed from the current file.
+Resume is scoped to the same normalized plan path and current Claude session.
 
 The result is findings-first markdown with a companion-owned readiness block. The readiness block says whether implementation is allowed, whether the plan needs re-review, and the recommended next action. Statuses are `ready`, `ready-with-implementation-notes`, `revise-before-start`, `blocked`, `invalid-result`, and `policy-failed`.
 

@@ -18,7 +18,7 @@ Use `/codex:review` or `/codex:adversarial-review` for code changes. Use `/codex
 ## Command
 
 ```bash
-/codex:plan-review [--wait|--background] <path/to/plan.md>
+/codex:plan-review [--wait|--background] [--resume] <path/to/plan.md>
 ```
 
 Examples:
@@ -27,6 +27,7 @@ Examples:
 /codex:plan-review docs/plans/wave-1/plan.md
 /codex:plan-review --wait docs/plans/wave-1/plan.md
 /codex:plan-review --background docs/plans/wave-1/plan.md
+/codex:plan-review --resume docs/plans/wave-1/plan.md
 ```
 
 If neither `--wait` nor `--background` is provided, Claude Code asks once whether to wait for the result or run the review in the background.
@@ -125,6 +126,14 @@ Codex may inspect files and repository state. It must not:
 If a check matters, Codex should put it in the output as a suggested verification step instead of running it.
 
 The companion script audits the run after Codex finishes. If Codex runs a forbidden command or changes files, the job is marked failed and the stored result includes policy violation diagnostics.
+
+## Resuming A Plan Review
+
+Use `--resume` when you have already reviewed a plan in the current Claude session, edited the same plan file, and want Codex to continue the prior plan-review thread.
+
+The companion still rebuilds the deterministic seed from the current file. It resumes only the newest finished `plan-review` job whose normalized plan path matches the current path. If a matching plan review is still running, the command fails and asks you to check status first.
+
+`--resume` does not apply findings, edit the plan, or create a convergence loop. It starts a new tracked plan-review job and stores resume metadata in the runtime payload.
 
 ## Background Jobs
 
