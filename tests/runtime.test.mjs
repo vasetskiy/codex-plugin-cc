@@ -316,6 +316,215 @@ test("plan-review runs a read-only structured review for a plan file", () => {
   assert.match(fakeState.lastTurnStart.prompt, /Change one thing\./);
 });
 
+test("plan-review fresh runs create persistent threads", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nFirst version.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "plan-review", "--json", "docs/plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  const thread = fakeState.threads.find((candidate) => candidate.id === payload.threadId);
+  assert.equal(thread.ephemeral, false);
+  assert.match(thread.name, /^Codex Plan Review: docs\/plan\.md$/);
+  assert.deepEqual(payload.runtime.resume, {
+    requested: false,
+    sourceJobId: null,
+    sourceThreadId: null,
+    sourceCompletedAt: null
+  });
+});
+
+test("plan-review --resume resumes the latest finished review for the same plan in the current session", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nFirst version.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const env = {
+    ...buildEnv(binDir),
+    CODEX_COMPANION_SESSION_ID: "sess-current"
+  };
+  const first = run("node", [SCRIPT, "plan-review", "--json", "docs/plan.md"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(first.status, 0, first.stderr);
+  const firstPayload = JSON.parse(first.stdout);
+
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n\nSecond version.\n");
+
+  const resumed = run("node", [SCRIPT, "plan-review", "--json", "--resume", "./docs/plan.md"], {
+    cwd: repo,
+    env
+  });
+
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const resumedPayload = JSON.parse(resumed.stdout);
+  assert.notEqual(resumedPayload.turnId, firstPayload.turnId);
+  assert.equal(resumedPayload.threadId, firstPayload.threadId);
+  assert.equal(resumedPayload.plan.normalized_plan_path, "docs/plan.md");
+  assert.equal(resumedPayload.runtime.resume.requested, true);
+  assert.equal(resumedPayload.runtime.resume.sourceJobId, firstPayload.runtime.jobId);
+  assert.match(resumedPayload.runtime.resume.sourceJobId, /^review-/);
+  assert.equal(resumedPayload.runtime.resume.sourceThreadId, firstPayload.threadId);
+  assert.match(resumedPayload.runtime.resume.sourceCompletedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadResume.threadId, firstPayload.threadId);
+  assert.equal(fakeState.lastTurnStart.threadId, firstPayload.threadId);
+  assert.match(fakeState.lastTurnStart.prompt, /Second version\./);
+});
+
+test("plan-review --resume rejects when a matching plan-review job is still active", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), "# Plan\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const stateDir = resolveStateDir(repo);
+  fs.mkdirSync(path.join(stateDir, "jobs"), { recursive: true });
+  fs.writeFileSync(
+    path.join(stateDir, "state.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        config: { stopReviewGate: false },
+        jobs: [
+          {
+            id: "review-running",
+            kind: "plan-review",
+            kindLabel: "plan-review",
+            status: "running",
+            title: "Codex Plan Review",
+            jobClass: "review",
+            sessionId: "sess-current",
+            threadId: "thr_running",
+            targetLabel: "docs/plan.md",
+            summary: "Plan Review docs/plan.md",
+            updatedAt: "2026-05-25T12:00:00.000Z"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const result = run("node", [SCRIPT, "plan-review", "--resume", "docs/plan.md"], {
+    cwd: repo,
+    env: {
+      ...buildEnv(binDir),
+      CODEX_COMPANION_SESSION_ID: "sess-current"
+    }
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Plan review review-running is still running/);
+});
+
+test("plan-review --resume fails clearly when no matching finished review exists", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "plan.md"), "# Plan\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const result = run("node", [SCRIPT, "plan-review", "--resume", "plan.md"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /No previous finished plan review was found for plan\.md/);
+});
+
+test("plan-review --resume ignores finished reviews from other Claude sessions", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "plan.md"), "# Plan\n\nFirst version.\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const first = run("node", [SCRIPT, "plan-review", "--json", "plan.md"], {
+    cwd: repo,
+    env: {
+      ...buildEnv(binDir),
+      CODEX_COMPANION_SESSION_ID: "sess-other"
+    }
+  });
+  assert.equal(first.status, 0, first.stderr);
+
+  const resume = run("node", [SCRIPT, "plan-review", "--resume", "plan.md"], {
+    cwd: repo,
+    env: {
+      ...buildEnv(binDir),
+      CODEX_COMPANION_SESSION_ID: "sess-current"
+    }
+  });
+
+  assert.equal(resume.status, 1);
+  assert.match(resume.stderr, /No previous finished plan review was found for plan\.md/);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastThreadResume ?? null, null);
+});
+
+test("plan-review --resume ignores finished reviews for a different normalized plan path", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "plan-review-ok");
+  initGitRepo(repo);
+  fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "one.md"), "# One\n");
+  fs.writeFileSync(path.join(repo, "docs", "two.md"), "# Two\n");
+  run("git", ["add", "."], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+
+  const env = {
+    ...buildEnv(binDir),
+    CODEX_COMPANION_SESSION_ID: "sess-current"
+  };
+  const first = run("node", [SCRIPT, "plan-review", "--json", "docs/one.md"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(first.status, 0, first.stderr);
+
+  const resume = run("node", [SCRIPT, "plan-review", "--resume", "docs/two.md"], {
+    cwd: repo,
+    env
+  });
+
+  assert.equal(resume.status, 1);
+  assert.match(resume.stderr, /No previous finished plan review was found for docs\/two\.md/);
+});
+
 test("plan-review status and result expose plan-review as its own job kind", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

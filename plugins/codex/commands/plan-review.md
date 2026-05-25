@@ -1,6 +1,6 @@
 ---
 description: Run a Codex readiness review for a plan file
-argument-hint: '[--wait|--background] <path/to/plan.md>'
+argument-hint: '[--wait|--background] [--resume] <path/to/plan.md>'
 disable-model-invocation: true
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -26,8 +26,9 @@ Execution mode rules:
 Argument handling:
 - Preserve the user's arguments exactly.
 - Do not strip `--wait` or `--background` yourself.
+- `--resume` is parsed by the companion. Preserve it in `$ARGUMENTS`; do not ask whether to continue and do not inspect prior jobs on the Claude side. The wrapper does not ask whether to continue.
 - Do not add extra review instructions or rewrite the user's intent.
-- The companion script parses `--wait`, `--background`, and the plan path.
+- The companion script parses `--wait`, `--background`, `--resume`, and the plan path.
 - Claude Code's `Bash(..., run_in_background: true)` is what actually detaches the run.
 
 Foreground flow:
